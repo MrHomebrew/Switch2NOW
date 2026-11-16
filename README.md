@@ -2,12 +2,13 @@
   <img src="docs/branding/switchnow-hero-2048.png" width="560" alt="SwitchNOW logo">
 </p>
 
-# SwitchNOW
+# SwitchNOW (Switch 1 & Switch 2)
 
-Developed and maintained by **Blade-Punisher**.
+Original project developed and maintained by **Blade-Punisher**.  
+Nintendo Switch 2 port (`ounce-devkit` / `OunceVK` + hardware H.264 decoding) and Brazilian Portuguese (`pt-BR`) localization by **David Kalil Braga ([@davidkalil10](https://github.com/davidkalil10))**.
 
-SwitchNOW is a native Nintendo Switch homebrew client for GeForce NOW. It is
-distributed as an `.nro` and combines a controller-first Borealis launcher with
+SwitchNOW is a native Nintendo Switch / Nintendo Switch 2 homebrew client for GeForce NOW. It is
+distributed as an `.nro` (compatible with `hbmenu` / `ounce-hbmenu` and `kaiHEN` on Switch 2) and combines a controller-first Borealis launcher with
 native WebRTC signaling, H.264 video, Opus audio and low-latency input delivery.
 
 > [!IMPORTANT]
@@ -43,18 +44,18 @@ native WebRTC signaling, H.264 video, Opus audio and low-latency input delivery.
 
 | Component | Implementation |
 | --- | --- |
-| Target platform | Nintendo Switch homebrew / Horizon OS |
-| Package | Native `.nro` application |
-| UI | Borealis, controller-first navigation, touch support |
+| Target platform | Nintendo Switch (Horizon OS) & Nintendo Switch 2 (`ounce-devkit` / `libounce` / `OunceVK`, compatible with `hbmenu` and `kaiHEN`) |
+| Package | Native `.nro` application (`SwitchNOW.nro` for Switch 1, `SwitchNOW-switch2.nro` for Switch 2) |
+| UI | Borealis (Deko3D on Switch 1; OpenGL ES 3.0 via `OunceVK` EGL on Switch 2), controller-first navigation, touch support |
 | Signaling and media | Secure WebSocket signaling and WebRTC with ICE |
 | Video codec | H.264 |
-| Video decoder | Tegra X1 NVDEC, software FFmpeg fallback, automatic safe mode |
+| Video decoder | Switch 1: Tegra X1 NVDEC + software FFmpeg fallback; Switch 2: `libounce` (`GSV1/viddec`) hardware H.264 + software FFmpeg fallback |
 | Stream presets | Safe: 720p30 at 8 Mbps; Balanced: 720p60 at 12 Mbps; Quality: 1080p60 at 20 Mbps |
 | Custom bitrate steps | 8, 12, 16, 20 or 25 Mbps |
 | Quality modes | Performance, Balanced and Quality |
-| Audio | Opus, 30-100 ms configurable buffer, 8x-16x gain options |
+| Audio | Opus (Hwopus on Switch 1, libopus + `audout` on Switch 2), 30-100 ms configurable buffer, 8x-16x gain options |
 | Input | Xbox-compatible gamepad reports, relative mouse and keyboard over the stream data channel |
-| Interface languages | English, Simplified Chinese, Spanish, Russian, Italian, French, Polish and Ukrainian |
+| Interface languages | English, Português (Brasil), Simplified Chinese, Spanish, Russian, Italian, French, Polish and Ukrainian |
 | In-game languages | 30 selectable locale profiles, sent when supported by the game |
 | Local data | `sdmc:/switch/SwitchNOW/` |
 
@@ -154,9 +155,8 @@ Existing installations are migrated automatically from
 
 ## Install
 
-1. Copy `SwitchNOW.nro` and the icons to `sdmc:/switch/SwitchNOW/`.
-2. Start Homebrew Menu in application mode by holding `R` while opening an
-   installed game.
+1. Copy `SwitchNOW.nro` (Switch 1) or `SwitchNOW-switch2.nro` (Switch 2) and the icons to `sdmc:/switch/SwitchNOW/`.
+2. On Switch 1, start Homebrew Menu in application mode by holding `R` while opening an installed game; on Switch 2, launch from `hbmenu` (`ounce-hbmenu`) or `kaiHEN`.
 3. Launch SwitchNOW.
 
 Application data, settings and optional debug logs are stored in
@@ -164,21 +164,8 @@ Application data, settings and optional debug logs are stored in
 
 ## Build requirements
 
-- Windows with MSYS2 at `C:\msys64`, or an equivalent Unix/MSYS2 shell.
-- devkitPro with `devkitA64`, Switch portlibs and CMake/Ninja.
-- The dependencies included in `extern/`.
-
-Build from PowerShell:
-
-```powershell
-.\build-switch.ps1
-```
-
-Output:
-
-```text
-build/switch/SwitchNOW.nro
-```
+- **Switch 1:** Windows with MSYS2 at `C:\msys64` or Unix/MSYS2 shell, devkitPro (`devkitA64`, Switch portlibs, CMake/Ninja): `.\build-switch.ps1` -> `build/switch/SwitchNOW.nro`.
+- **Switch 2:** `devkitpro/devkita64` + pinned [`ounce-devkit`](https://github.com/ouncebrew/ounce-devkit) (`libounce`, `OunceVK`), CMake/Ninja: `bash scripts/build-switch2.sh` -> `build/switch2/SwitchNOW-switch2.nro`.
 
 Create a conventional release archive:
 
@@ -204,21 +191,11 @@ The repository contains no accounts, passwords, tokens, logs or device data.
 Saved credentials are created only at runtime on the user's SD card. Password
 storage for GFN accounts is optional and uses the encrypted local credential vault. Game/Epic auto-login profiles are optional plain-text files on SD; protect the card accordingly.
 
-## Support SwitchNOW
+## Projects, credits and acknowledgements
 
-SwitchNOW is free and open source. If you enjoy the project and would like to
-support its continued development, you can make an optional cryptocurrency
-contribution through NOWPayments.
-
-<a href="https://nowpayments.io/payment/?iid=5035597688&source=button" target="_blank" rel="noreferrer noopener"><img src="https://nowpayments.io/images/embeds/payments-button-black.svg" alt="Support SwitchNOW with cryptocurrency through NOWPayments"></a>
-
-[Open the SwitchNOW contribution page](https://nowpayments.io/payment/?iid=5035597688)
-
-Contributions are entirely voluntary, are processed by the third-party
-NOWPayments service, and do not unlock features or create any obligation or
-warranty.
-
-## Projects and acknowledgements
+- **Original `SwitchNOW` project:** Created and maintained by **Blade-Punisher** (thanks for building SwitchNOW and making the source available).
+- **Nintendo Switch 2 port & Brazilian Portuguese (`pt-BR`) localization:** [David Kalil Braga (@davidkalil10)](https://github.com/davidkalil10).
+- **Switch 2 SDK & ecosystem:** [ounce-devkit](https://github.com/ouncebrew/ounce-devkit), `libounce`, `OunceVK` (`ounce-hbmenu` and `kaiHEN` compatibility).
 
 SwitchNOW would not exist without the following open-source projects. Reference projects informed the architecture and user experience. Selected adaptations from OpenNOW-Switch are acknowledged in THIRD_PARTY_NOTICES.md.
 

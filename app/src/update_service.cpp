@@ -28,8 +28,13 @@ namespace opennow::update
 namespace
 {
 
+#ifdef __SWITCH2__
+constexpr const char* kLatestReleaseUrl =
+    "https://api.github.com/repos/davidkalil10/Switch2NOW/releases/latest";
+#else
 constexpr const char* kLatestReleaseUrl =
     "https://api.github.com/repos/Blade-Punisher/SwitchNOW/releases/latest";
+#endif
 constexpr const char* kHelperRomfsPath = "romfs:/updater/SwitchNOWUpdater.nro";
 constexpr const char* kHelperSdPath = "sdmc:/switch/SwitchNOW/SwitchNOWUpdater.nro";
 constexpr std::size_t kMetadataLimit = 512 * 1024;

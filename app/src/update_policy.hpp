@@ -96,8 +96,13 @@ inline bool IsNewerVersion(const std::string& candidate, const std::string& curr
 
 inline bool IsTrustedReleaseAsset(const std::string& url)
 {
+#ifdef __SWITCH2__
+    static const std::string prefix =
+        "https://github.com/davidkalil10/Switch2NOW/releases/download/";
+#else
     static const std::string prefix =
         "https://github.com/Blade-Punisher/SwitchNOW/releases/download/";
+#endif
     return url.rfind(prefix, 0) == 0;
 }
 

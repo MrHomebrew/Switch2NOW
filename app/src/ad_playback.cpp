@@ -5,7 +5,11 @@
 #include "advertisement_source.hpp"
 #include "media_input_policy.hpp"
 #include "runtime_journal.hpp"
+#if defined(USE_DK_RENDERER)
 #include "stream/deko3d/DKVideoRenderer.hpp"
+#else
+#include "stream/OpenGL/GLVideoRenderer.hpp"
+#endif
 
 #include <switch.h>
 
@@ -339,7 +343,11 @@ struct AdvertisementPlaybackView::Impl
     explicit Impl(std::shared_ptr<AdvertisementPlaybackState> source)
         : state(std::move(source)) {}
     std::shared_ptr<AdvertisementPlaybackState> state;
+#if defined(USE_DK_RENDERER)
     DKVideoRenderer renderer;
+#else
+    GLVideoRenderer renderer;
+#endif
 };
 
 AdvertisementPlaybackView::AdvertisementPlaybackView(

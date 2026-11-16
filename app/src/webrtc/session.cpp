@@ -109,7 +109,11 @@ WebRtcSession::WebRtcSession(
     peer_connection_set_diagnostics_sink(&LibPeerDiagnosticSink);
     peer_connection_set_diagnostics_enabled(
         settings_.debug_diagnostics || settings_.video_backend == "NVDEC");
+#if defined(USE_DK_RENDERER)
     renderer_ = std::make_unique<DKVideoRenderer>();
+#else
+    renderer_ = std::make_unique<GLVideoRenderer>();
+#endif
     audio_ = std::make_unique<AudioPipeline>();
     audio_->configure(settings_.audio_volume, opennow::streaming::AudioTargetMs(
         settings_.image_quality_mode, settings_.audio_buffer_ms));
@@ -150,13 +154,25 @@ WebRtcSession::WebRtcSession(
         decoder_->uses_hardware_frames())
         video_backend_name_ = "NVDEC-NVTEGRA/Deko3D-zero-copy(explicit)";
     else if (decoder_setup_result_ == 0 && decoder_->uses_hardware_decoder())
+#ifdef __SWITCH2__
+        video_backend_name_ = "GSV1-viddec/GLES3-upload";
+#else
         video_backend_name_ = "NVDEC/NVTEGRA-copy/Deko3D-upload(auto-safe)";
+#endif
     else if (decoder_setup_result_ == 0)
+#ifdef __SWITCH2__
+        video_backend_name_ = auto_safe_mode_used_
+            ? "FFmpeg-SW-SLICE-3T/GLES3-upload(crash-safe-mode)"
+            : decoder_fallback_used_
+            ? "FFmpeg-SW-SLICE-3T/GLES3-upload(auto-fallback)"
+            : "FFmpeg-SW-SLICE-3T/GLES3-upload";
+#else
         video_backend_name_ = auto_safe_mode_used_
             ? "FFmpeg-SW-SLICE-3T/Deko3D-upload(crash-safe-mode)"
             : decoder_fallback_used_
             ? "FFmpeg-SW-SLICE-3T/Deko3D-upload(auto-fallback)"
             : "FFmpeg-SW-SLICE-3T/Deko3D-upload";
+#endif
     else
         video_backend_name_ = require_hardware
             ? "NVDEC-required/setup-failed"

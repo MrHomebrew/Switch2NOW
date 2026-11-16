@@ -15,7 +15,7 @@ int main(){
     std::filesystem::remove_all(base);std::filesystem::create_directories(base);
     auto dir=[&](const std::string& name){const auto value=base+"/"+name;std::filesystem::create_directories(value);return value;};
     const auto never=[] {return false;};const std::int64_t now=2000000000;
-    for(const auto* language:{"en","ru","uk","zh-CN","es","it","fr","pl"}) assert(!Locale(language).empty());
+    for(const auto* language:{"en","pt-BR","ru","uk","zh-CN","es","it","fr","pl"}) assert(!Locale(language).empty());
     assert(Locale("invalid").empty());assert(Locale("uk")=="uk_UA");
     assert(PlainText("<p>Hello &amp; welcome</p><br>Game")=="Hello & welcome\n\nGame");
     auto chunks=Split(std::string(1100,'x')+"\nSecond paragraph.");assert(chunks.size()==4);

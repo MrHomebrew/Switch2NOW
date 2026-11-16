@@ -18,6 +18,62 @@ limitations under the License.
 
 #pragma once
 
+#ifdef __SWITCH2__
+
+#include <EGL/egl.h>
+#include <switch.h>
+
+#include <borealis/core/video.hpp>
+#include <functional>
+
+typedef Event _LibNXEvent; // "Event" alone clashes with brls::Event
+
+namespace brls
+{
+
+// Switch 2 EGL + OpenGL ES 3.0 (OunceVK) video context
+class SwitchVideoContext : public VideoContext
+{
+  public:
+    SwitchVideoContext();
+    ~SwitchVideoContext() override;
+
+    void clear(NVGcolor color) override;
+    void resetState() override;
+    void beginFrame() override;
+    void endFrame() override;
+    void setSwapInterval(int interval) override;
+    double getScaleFactor() override;
+    NVGcontext* getNVGContext() override;
+
+    void appletCallback(AppletHookType hookType);
+
+    void captureNextFrame(std::function<void()> callback) { frameCapture = std::move(callback); }
+
+    uint32_t getFramebufferWidth() const { return static_cast<uint32_t>(framebufferWidth); }
+    uint32_t getFramebufferHeight() const { return static_cast<uint32_t>(framebufferHeight); }
+
+  private:
+    std::function<void()> frameCapture;
+    _LibNXEvent defaultDisplayResolutionChangeEvent {};
+    bool displayResolutionChangeEventReady = true;
+
+    void resetFramebuffer();
+    void updateWindowSize();
+
+    float framebufferWidth = 1280.0f;
+    float framebufferHeight = 720.0f;
+
+    EGLDisplay eglDisplay = EGL_NO_DISPLAY;
+    EGLContext eglContext = EGL_NO_CONTEXT;
+    EGLSurface eglSurface = EGL_NO_SURFACE;
+    NVGcontext* nvgContext = nullptr;
+};
+
+} // namespace brls
+
+#else // !__SWITCH2__
+
 #include <nanovg/framework/CMemPool.h>
 #include <switch.h>
 
@@ -110,3 +166,5 @@ class SwitchVideoContext : public VideoContext
 };
 
 } // namespace brls
+
+#endif // !__SWITCH2__

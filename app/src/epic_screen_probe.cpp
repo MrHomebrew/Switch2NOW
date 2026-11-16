@@ -2,13 +2,46 @@
 #ifdef __SWITCH__
 #include <borealis.hpp>
 #include <borealis/platforms/switch/switch_video.hpp>
+#ifdef __SWITCH2__
+#include <GLES3/gl3.h>
+#include <vector>
+#endif
 #endif
 namespace opennow::autologin::epic {
 void RequestProbe(const std::shared_ptr<Probe>& job,Flow::Clock::time_point now) {
     if(!job||!job->active||job->pending)return;
     if(job->requested_at.time_since_epoch().count()&&now-job->requested_at<std::chrono::milliseconds(500))return;
     job->pending=true;job->requested_at=now;
-#ifdef __SWITCH__
+#ifdef __SWITCH2__
+    auto* video=static_cast<brls::SwitchVideoContext*>(brls::Application::getPlatform()->getVideoContext());
+    if(!video){job->screen=Screen::Unknown;++job->serial;job->pending=false;return;}
+    video->captureNextFrame([job]{
+        if(!job->active){job->pending=false;return;}
+        Detection result;
+        try {
+            const auto width=brls::Application::windowWidth,height=brls::Application::windowHeight;
+            if(width>=640&&width<=1920&&height>=360&&height<=1080) {
+                std::vector<unsigned char> row(static_cast<size_t>(width)*4);
+                std::array<std::vector<unsigned char>,kRowY.size()> lines;
+                for(unsigned l=0;l<kRowY.size();++l) {
+                    const int sy=static_cast<int>(kRowY[l])*height/720;
+                    const int gl_y=std::max(0,height-1-sy);
+                    glReadPixels(0,gl_y,width,1,GL_RGBA,GL_UNSIGNED_BYTE,row.data());
+                    lines[l]=row;
+                }
+                Samples samples{};
+                for(unsigned i=0;i<samples.size();++i) {
+                    const unsigned line=i<2?0:i<6?1:i<10?2:3+(i-10)/4;
+                    const auto x=static_cast<unsigned>(kSampleX[i])*width/1280;
+                    const auto* p=lines[line].data()+x*4;
+                    samples[i]={p[0],p[1],p[2]};
+                }
+                result=Detect(samples);
+            }
+        } catch(...) {}
+        job->screen=result.screen;job->continue_y=result.continue_y;++job->serial;job->pending=false;
+    });
+#elif defined(__SWITCH__)
     auto* video=static_cast<brls::SwitchVideoContext*>(brls::Application::getPlatform()->getVideoContext());
     if(!video){job->screen=Screen::Unknown;++job->serial;job->pending=false;return;}
     video->captureNextFrame([job]{

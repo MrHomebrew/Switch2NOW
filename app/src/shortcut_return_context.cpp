@@ -9,6 +9,11 @@
 #include <cstdio>
 #ifdef __SWITCH__
 #include <borealis/platforms/switch/switch_video.hpp>
+#ifdef __SWITCH2__
+#include <GLES3/gl3.h>
+#include <cstring>
+#include <vector>
+#endif
 #include <stb_image_write.h>
 #endif
 namespace opennow {
@@ -24,7 +29,23 @@ std::string Text(json_t* root, const char* key) {
 static bool SaveGamePageSnapshot() {
     constexpr const char* path = "sdmc:/switch/SwitchNOW/.shortcut/game_page.png";
     std::remove(path); // Never reuse another game's background after a failure.
-#ifdef __SWITCH__
+#ifdef __SWITCH2__
+    const auto width = brls::Application::windowWidth;
+    const auto height = brls::Application::windowHeight;
+    if (!width || !height || width > 1920 || height > 1080) return false;
+    const size_t stride = static_cast<size_t>(width) * 4;
+    std::vector<unsigned char> bottom_up(stride * height);
+    std::vector<unsigned char> top_down(stride * height);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottom_up.data());
+    for (int row = 0; row < height; ++row) {
+        std::memcpy(top_down.data() + static_cast<size_t>(row) * stride,
+            bottom_up.data() + static_cast<size_t>(height - 1 - row) * stride, stride);
+    }
+    const bool saved = stbi_write_png(path, width, height, 4, top_down.data(), width * 4) != 0;
+    LogRuntimeEvent("shortcut", "page_snapshot", saved ? "saved" : "write_failed");
+    return saved;
+#elif defined(__SWITCH__)
     auto* video = static_cast<brls::SwitchVideoContext*>(
         brls::Application::getPlatform()->getVideoContext());
     const auto width = brls::Application::windowWidth;

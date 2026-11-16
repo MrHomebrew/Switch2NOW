@@ -1,0 +1,107 @@
+name: Switch 2 build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: switch2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  switch2:
+    name: Nintendo Switch 2 (.nro)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    container:
+      image: devkitpro/devkita64:20260219
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITA64: /opt/devkitpro/devkitA64
+      OUNCE_DEVKIT_COMMIT: 0f38ba80d7ee768c5749278f127749d14ece2036
+      OUNCE_DEVKIT_VERSION: '20261115'
+      SWITCHNOW_VERSION: '1.3.0'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Configure git safe directory & build tools
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ca-certificates curl xz-utils git cmake ninja-build python3 pkg-config make yasm
+
+      - name: Prepare pinned Switch 2 SDK (ounce-devkit)
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/ounce-devkit"
+          git init "$sdk"
+          git -C "$sdk" fetch --depth=1 https://github.com/ouncebrew/ounce-devkit.git "$OUNCE_DEVKIT_COMMIT"
+          git -C "$sdk" checkout --detach FETCH_HEAD
+          test "$(git -C "$sdk" rev-parse HEAD)" = "$OUNCE_DEVKIT_COMMIT"
+          bash "$sdk/install.sh" "$OUNCE_DEVKIT_VERSION"
+          test -f "$DEVKITPRO/libounce/cmake/Switch2.cmake"
+          test -f "$DEVKITPRO/portlibs/switch2/lib/libEGL.a"
+          test -f "$DEVKITPRO/portlibs/switch/lib/libcurl.a"
+          test -f "$DEVKITPRO/portlibs/switch/lib/libopus.a"
+          cat "$DEVKITPRO/ounce-devkit-version.txt"
+
+      - name: Verify Switch 2 package checker tests
+        run: python3 -m unittest tests/test_switch2_package.py -v
+
+      - name: Cache Switch 2 FFmpeg build
+        uses: actions/cache@v4
+        with:
+          path: build/switch2/ffmpeg-install
+          key: switch2-ffmpeg-v1-${{ hashFiles('scripts/build-switch2.sh', 'extern/ffmpeg/upstream/configure') }}
+
+      - name: Build & verify SwitchNOW-switch2.nro
+        env:
+          OPENNOW_BUILD_JOBS: "4"
+        run: |
+          set -eo pipefail
+          if ! bash scripts/build-switch2.sh 2>&1 | tee switch2-build.log; then
+            {
+              echo "### Switch 2 build failed (tail)"
+              echo '```'
+              tail -n 80 switch2-build.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          sha256sum build/switch2/SwitchNOW-switch2.nro > build/switch2/SwitchNOW-switch2.nro.sha256
+          ls -lh build/switch2/SwitchNOW-switch2.nro build/switch2/SwitchNOW-switch2.nro.sha256
+          cat build/switch2/SwitchNOW-switch2.nro.sha256
+
+      - name: Upload Switch 2 NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwitchNOW-switch2-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/switch2/SwitchNOW-switch2.nro
+            build/switch2/SwitchNOW-switch2.nro.sha256
+
+      - name: Upload Switch 2 build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwitchNOW-switch2-logs
+          if-no-files-found: ignore
+          path: |
+            switch2-build.log
+            build/switch2/SwitchNOW-switch2.map
+            build/switch2/ffmpeg-build/ffbuild/config.log

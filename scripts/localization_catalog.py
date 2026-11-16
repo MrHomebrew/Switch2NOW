@@ -4,7 +4,7 @@ from pathlib import Path
 import argparse,json,re,sys
 from ui_string_inventory import inventory
 ROOT=Path(__file__).resolve().parent.parent
-LANGUAGES=('ru','uk','es','it','fr','pl','zh-CN')
+LANGUAGES=('ru','uk','es','it','fr','pl','zh-CN','pt-BR')
 PRINTF=re.compile(r'%(?:\d+\$)?[-+#0 ]*\d*(?:\.\d+)?(?:hh|ll|[hljztL])?[diuoxXfFeEgGaAcspn%]')
 def load():
  def unique(pairs):

@@ -8,6 +8,9 @@
 
 #include "peer_connection.h"
 #include <switch.h>
+#ifdef __SWITCH2__
+#include <opus/opus.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -102,7 +105,11 @@ struct AudioPipeline::Impl {
     int concealment_recovery_frames_remaining = 0;
     std::array<int16_t, kChannels> last_output_samples {};
 
+#ifdef __SWITCH2__
+    OpusDecoder* opus_decoder = nullptr;
+#else
     HwopusDecoder decoder {};
+#endif
     bool decoder_ready = false;
     struct OutputSlot {
         AudioOutBuffer buffer {};
@@ -153,14 +160,24 @@ struct AudioPipeline::Impl {
     }
 
     bool initialize_audio() {
+#ifdef __SWITCH2__
+        int opus_err = 0;
+        opus_decoder = opus_decoder_create(kSampleRate, kChannels, &opus_err);
+        if (!opus_decoder || opus_err != OPUS_OK) {
+            log("INIT opus_failed err=" + std::to_string(opus_err));
+            return false;
+        }
+        decoder_ready = true;
+#else
         Result rc = hwopusDecoderInitialize(&decoder, kSampleRate, kChannels);
         if (R_FAILED(rc)) {
             log("INIT hwopus_failed rc=0x" + hex_result(rc));
             return false;
         }
         decoder_ready = true;
+#endif
 
-        rc = audoutInitialize();
+        Result rc = audoutInitialize();
         if (R_FAILED(rc)) {
             log("INIT audout_failed rc=0x" + hex_result(rc));
             return false;
@@ -230,7 +247,14 @@ struct AudioPipeline::Impl {
             audoutExit();
         }
         if (decoder_ready) {
+#ifdef __SWITCH2__
+            if (opus_decoder) {
+                opus_decoder_destroy(opus_decoder);
+                opus_decoder = nullptr;
+            }
+#else
             hwopusDecoderExit(&decoder);
+#endif
             decoder_ready = false;
         }
     }
@@ -556,8 +580,13 @@ struct AudioPipeline::Impl {
             reclaim_output_buffers();
         }
         if (decoder_ready) {
+#ifdef __SWITCH2__
+            if (opus_decoder)
+                opus_decoder_ctl(opus_decoder, OPUS_RESET_STATE);
+#else
             hwopusDecoderExit(&decoder);
             decoder_ready = R_SUCCEEDED(hwopusDecoderInitialize(&decoder, kSampleRate, kChannels));
+#endif
         }
         have_base_timestamp.store(false);
         fade_frames_processed = 0;
@@ -593,11 +622,27 @@ struct AudioPipeline::Impl {
         if (payload.red)
             red_packets++;
 
+        std::array<int16_t, 5760 * kChannels> pcm {};
+#ifdef __SWITCH2__
+        const int decoded_samples = opus_decode(
+            opus_decoder, payload.data, static_cast<opus_int32>(payload.size),
+            pcm.data(), 5760, 0);
+        if (attempt <= 12)
+            log("DECODE opus_return attempt=" + std::to_string(attempt) +
+                " samples=" + std::to_string(decoded_samples));
+        if (decoded_samples <= 0) {
+            decode_errors++;
+            log("DECODE failed seq=" + std::to_string(packet.sequence) +
+                " pt=" + std::to_string(packet.payload_type) +
+                " bytes=" + std::to_string(payload.size) + " err=" + std::to_string(decoded_samples));
+            submit_plc();
+            return;
+        }
+#else
         std::vector<uint8_t> input(sizeof(HwopusHeader) + payload.size);
         write_be32(input.data(), static_cast<uint32_t>(payload.size));
         write_be32(input.data() + 4, 0);
         std::memcpy(input.data() + sizeof(HwopusHeader), payload.data, payload.size);
-        std::array<int16_t, 5760 * kChannels> pcm {};
         int32_t decoded_bytes = 0;
         int32_t decoded_samples = 0;
         const Result rc = hwopusDecodeInterleaved(&decoder, &decoded_bytes, &decoded_samples,
@@ -616,6 +661,7 @@ struct AudioPipeline::Impl {
             submit_plc();
             return;
         }
+#endif
         if (!have_base_timestamp) {
             // Account for startup concealment already queued before the first real packet.
             base_timestamp.store(opennow::audio::AudioTimelineBase(packet.timestamp, submitted_samples.load()));

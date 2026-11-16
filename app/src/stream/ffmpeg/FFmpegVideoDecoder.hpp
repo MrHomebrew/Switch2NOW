@@ -3,7 +3,15 @@
 #include "AVFrameHolder.hpp"
 #include <atomic>
 #include <array>
+#include <cstdint>
+#include <string>
 #include <utility>
+#include <vector>
+#ifdef __SWITCH2__
+extern "C" {
+#include <switch2/video/decoder.h>
+}
+#endif
 
 namespace opennow::video { class DecodedFrameGate; }
 struct DecodeSubmissionStatus {
@@ -81,4 +89,19 @@ class FFmpegVideoDecoder : public IFFmpegVideoDecoder {
     bool m_requires_hardware_frames = false;
     bool m_first_output_format_logged = false;
     std::string m_setup_diagnostics;
+#ifdef __SWITCH2__
+    bool ensure_switch2_decoder(const uint8_t* data, size_t size);
+    void close_switch2_decoder();
+    int submit_switch2_decode_unit(const uint8_t* indata, int inlen, int64_t pts);
+
+    ::VideoDecoder m_switch2_decoder {};
+    bool m_switch2_hw_enabled = false;
+    bool m_switch2_hw_ready = false;
+    std::vector<uint8_t> m_switch2_codec_config;
+    int64_t m_switch2_frame_index = 0;
+    int m_switch2_width = 1920;
+    int m_switch2_height = 1080;
+    int m_switch2_colorspace = AVCOL_SPC_BT709;
+    bool m_switch2_color_full = false;
+#endif
 };

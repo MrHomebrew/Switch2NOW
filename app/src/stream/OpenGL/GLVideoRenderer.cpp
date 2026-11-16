@@ -234,11 +234,13 @@ static const int yuv420Planes[][5] = {
     {1, 2, 2, GL_R8, GL_RED},  // V
 };
 
+#ifdef GL_R16
 static const int p010Planes[][5] = {
     {2, 1, 2, GL_R16, GL_RED},  // Y
     {4, 2, 4, GL_RG16, GL_RG},  // UV
     {0, 0, 0, 0, 0},            // NOT EXISTS
 };
+#endif
 
 static const float vertices[] = {-1.0f, -1.0f, 1.0f, -1.0f,
                                  -1.0f, 1.0f,  1.0f, 1.0f};
@@ -399,6 +401,7 @@ void GLVideoRenderer::initialize(AVFrame* frame) {
                    use_gl_core ? &fragment_two_planes_shader_string_core
                                : &fragment_two_planes_shader_string, nullptr);
             break;
+#ifdef GL_R16
         case AV_PIX_FMT_P010:
             currentFrameTypePlanesNum = 2;
             currentPlanes = p010Planes;
@@ -408,6 +411,7 @@ void GLVideoRenderer::initialize(AVFrame* frame) {
                    use_gl_core ? &fragment_two_planes_shader_string_core
                                : &fragment_two_planes_shader_string, nullptr);
             break;
+#endif
         default:
             brls::Logger::info("GL: Unknown frame format! - {}", frame->format);
             m_is_initialized = false;
@@ -464,13 +468,15 @@ void GLVideoRenderer::initialize(AVFrame* frame) {
 }
 
 void GLVideoRenderer::bindTexture(int id) {
-    float borderColorInternal[] = {borderColor[id], 0.0f, 0.0f, 1.0f};
     glBindTexture(GL_TEXTURE_2D, m_texture_id[id]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+#if !defined(__SWITCH2__) && defined(GL_TEXTURE_BORDER_COLOR)
+    float borderColorInternal[] = {borderColor[id], 0.0f, 0.0f, 1.0f};
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColorInternal);
+#endif
     textureWidth[id] = m_frame_width / currentPlanes[id][1];
     textureHeight[id] = m_frame_height / currentPlanes[id][2];
     glTexImage2D(GL_TEXTURE_2D, 0, currentPlanes[id][3], textureWidth[id], textureHeight[id],
@@ -505,8 +511,11 @@ void GLVideoRenderer::checkAndInitialize(int width, int height,
 void GLVideoRenderer::checkAndUpdateScale(int width, int height,
                                           AVFrame* frame) {
     if ((m_frame_width != frame->width) || (m_frame_height != frame->height) ||
-        (m_screen_width != width) || (m_screen_height != height) ||
-        !use_core_shaders()) // Dirty fix for GLES, need to investigate the source of issue
+        (m_screen_width != width) || (m_screen_height != height)
+#if !defined(__SWITCH2__)
+        || !use_core_shaders() // Dirty fix for GLES, need to investigate the source of issue
+#endif
+        )
     {
 
         m_frame_width = frame->width;

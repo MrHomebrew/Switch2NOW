@@ -245,7 +245,11 @@ void WebRtcSession::draw(NVGcontext* vg, int width, int height, AVFrame* frame, 
             // size. Destroy it on the render thread (which waits for GPU use)
             // before interpreting the new frame or releasing its mappings.
             renderer_.reset();
+#if defined(USE_DK_RENDERER)
             renderer_ = std::make_unique<DKVideoRenderer>();
+#else
+            renderer_ = std::make_unique<GLVideoRenderer>();
+#endif
             renderer_frame_format_ = frame->format;
         }
         rendered_video_width_.store(frame->width, std::memory_order_relaxed);

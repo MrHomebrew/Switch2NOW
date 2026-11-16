@@ -3,6 +3,8 @@
 #include "../IVideoRenderer.hpp"
 #if defined(__LIBRETRO__)
 #include "glsym.h"
+#elif defined(__SWITCH2__)
+#include <GLES3/gl3.h>
 #elif defined(__PSV__)
 #define GL_GLEXT_PROTOTYPES
 #include <GLES2/gl2.h>

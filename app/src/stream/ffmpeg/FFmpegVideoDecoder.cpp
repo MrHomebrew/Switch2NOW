@@ -8,11 +8,16 @@
 #include "../../video_quality_policy.hpp"
 #include <cerrno>
 #include <chrono>
+#include <cstring>
 #include <sstream>
 extern "C" {
 #include <libavutil/pixdesc.h>
 #include <libavutil/hwcontext.h>
 }
+#ifdef __SWITCH2__
+#include <switch/kernel/svc.h>
+#include <switch/result.h>
+#endif
 #ifdef PLATFORM_APPLE
 extern "C" {
 #include <libavcodec/videotoolbox.h>
@@ -41,6 +46,243 @@ extern "C" {
 //    return JNI_VERSION_1_4;
 //}
 #endif
+
+#ifdef __SWITCH2__
+namespace {
+
+constexpr uint8_t kAnnexBStartCode[4] = {0x00, 0x00, 0x00, 0x01};
+
+std::vector<uint8_t> nal_to_rbsp(const uint8_t* nal, size_t len) {
+    std::vector<uint8_t> rbsp;
+    rbsp.reserve(len);
+    int zeros = 0;
+    for (size_t i = 0; i < len; ++i) {
+        const uint8_t b = nal[i];
+        if (zeros >= 2 && b == 0x03) {
+            zeros = 0;
+            continue;
+        }
+        rbsp.push_back(b);
+        zeros = (b == 0) ? (zeros + 1) : 0;
+    }
+    return rbsp;
+}
+
+class BitReader {
+  public:
+    BitReader(const uint8_t* data, size_t size) : data_(data), size_(size) {}
+
+    bool read_bit(uint32_t& out) {
+        if (byte_ >= size_) return false;
+        out = (data_[byte_] >> (7 - bit_)) & 1u;
+        if (++bit_ == 8) {
+            bit_ = 0;
+            ++byte_;
+        }
+        return true;
+    }
+
+    bool read_bits(int n, uint32_t& out) {
+        out = 0;
+        for (int i = 0; i < n; ++i) {
+            uint32_t b = 0;
+            if (!read_bit(b)) return false;
+            out = (out << 1) | b;
+        }
+        return true;
+    }
+
+    bool skip_bits(int n) {
+        uint32_t tmp = 0;
+        for (int i = 0; i < n; ++i)
+            if (!read_bit(tmp)) return false;
+        return true;
+    }
+
+    bool read_ue(uint32_t& out) {
+        int zeros = 0;
+        uint32_t b = 0;
+        while (read_bit(b) && b == 0) {
+            if (++zeros > 30) return false;
+        }
+        if (b == 0) return false;
+        uint32_t suffix = 0;
+        if (zeros > 0 && !read_bits(zeros, suffix)) return false;
+        out = ((1u << zeros) - 1u) + suffix;
+        return true;
+    }
+
+    bool read_se() {
+        uint32_t dummy = 0;
+        return read_ue(dummy);
+    }
+
+  private:
+    const uint8_t* data_;
+    size_t size_;
+    size_t byte_ = 0;
+    int bit_ = 0;
+};
+
+void skip_scaling_list(BitReader& br, int size) {
+    int last = 8, next = 8;
+    for (int j = 0; j < size; ++j) {
+        if (next != 0) {
+            uint32_t v = 0;
+            if (!br.read_ue(v)) return;
+            const int32_t delta = (v & 1u) ? static_cast<int32_t>((v + 1u) >> 1)
+                                           : -static_cast<int32_t>(v >> 1);
+            next = (last + delta + 256) % 256;
+        }
+        last = (next == 0) ? last : next;
+    }
+}
+
+void parse_sps_vui(const uint8_t* nal, size_t len, int& colorspace, bool& full_range) {
+    if (len < 4) return;
+    std::vector<uint8_t> rbsp = nal_to_rbsp(nal + 1, len - 1);
+    BitReader br(rbsp.data(), rbsp.size());
+
+    uint32_t profile_idc = 0, dummy = 0;
+    if (!br.read_bits(8, profile_idc)) return;
+    if (!br.skip_bits(16)) return;
+    if (!br.read_ue(dummy)) return;
+
+    if (profile_idc == 100 || profile_idc == 110 || profile_idc == 122 ||
+        profile_idc == 244 || profile_idc == 44 || profile_idc == 83 ||
+        profile_idc == 86 || profile_idc == 118 || profile_idc == 128 ||
+        profile_idc == 138 || profile_idc == 139 || profile_idc == 134) {
+        uint32_t chroma_fmt = 0;
+        if (!br.read_ue(chroma_fmt)) return;
+        if (chroma_fmt == 3 && !br.skip_bits(1)) return;
+        if (!br.read_ue(dummy) || !br.read_ue(dummy) || !br.skip_bits(1)) return;
+        uint32_t seq_scaling = 0;
+        if (!br.read_bit(seq_scaling)) return;
+        if (seq_scaling) {
+            const int n = (chroma_fmt != 3) ? 8 : 12;
+            for (int i = 0; i < n; ++i) {
+                uint32_t present = 0;
+                if (!br.read_bit(present)) return;
+                if (present) skip_scaling_list(br, i < 6 ? 16 : 64);
+            }
+        }
+    }
+
+    if (!br.read_ue(dummy)) return;
+    uint32_t poc_type = 0;
+    if (!br.read_ue(poc_type)) return;
+    if (poc_type == 0) {
+        if (!br.read_ue(dummy)) return;
+    } else if (poc_type == 1) {
+        if (!br.skip_bits(1) || !br.read_se() || !br.read_se()) return;
+        uint32_t num_ref = 0;
+        if (!br.read_ue(num_ref)) return;
+        for (uint32_t i = 0; i < num_ref; ++i)
+            if (!br.read_se()) return;
+    }
+
+    if (!br.read_ue(dummy) || !br.skip_bits(1)) return;
+    if (!br.read_ue(dummy) || !br.read_ue(dummy)) return;
+    uint32_t frame_mbs_only = 0;
+    if (!br.read_bit(frame_mbs_only)) return;
+    if (!frame_mbs_only && !br.skip_bits(1)) return;
+    if (!br.skip_bits(1)) return;
+    uint32_t cropping = 0;
+    if (!br.read_bit(cropping)) return;
+    if (cropping) {
+        for (int i = 0; i < 4; ++i)
+            if (!br.read_ue(dummy)) return;
+    }
+
+    uint32_t vui_present = 0;
+    if (!br.read_bit(vui_present) || !vui_present) return;
+
+    uint32_t ar_present = 0;
+    if (!br.read_bit(ar_present)) return;
+    if (ar_present) {
+        uint32_t ar_idc = 0;
+        if (!br.read_bits(8, ar_idc)) return;
+        if (ar_idc == 255 && !br.skip_bits(32)) return;
+    }
+    uint32_t overscan = 0;
+    if (!br.read_bit(overscan)) return;
+    if (overscan && !br.skip_bits(1)) return;
+
+    uint32_t video_signal = 0;
+    if (!br.read_bit(video_signal) || !video_signal) return;
+    if (!br.skip_bits(3)) return;
+    uint32_t full = 0;
+    if (!br.read_bit(full)) return;
+    full_range = (full != 0);
+
+    uint32_t color_desc = 0;
+    if (!br.read_bit(color_desc) || !color_desc) return;
+    uint32_t primaries = 0, transfer = 0, matrix = 0;
+    if (!br.read_bits(8, primaries) || !br.read_bits(8, transfer) ||
+        !br.read_bits(8, matrix)) {
+        return;
+    }
+    colorspace = static_cast<int>(matrix);
+}
+
+bool extract_sps_pps(const uint8_t* data, size_t size,
+                     std::vector<uint8_t>& out_config,
+                     int& colorspace, bool& full_range) {
+    std::vector<std::pair<const uint8_t*, size_t>> sps;
+    std::vector<std::pair<const uint8_t*, size_t>> pps;
+
+    size_t i = 0;
+    while (i + 3 <= size) {
+        size_t sc_len = 0;
+        if (i + 4 <= size && data[i] == 0 && data[i + 1] == 0 &&
+            data[i + 2] == 0 && data[i + 3] == 1) {
+            sc_len = 4;
+        } else if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
+            sc_len = 3;
+        } else {
+            ++i;
+            continue;
+        }
+
+        const size_t nal_start = i + sc_len;
+        size_t nal_end = size;
+        for (size_t j = nal_start; j + 3 <= size; ++j) {
+            if (data[j] == 0 && data[j + 1] == 0 &&
+                (data[j + 2] == 1 ||
+                 (j + 4 <= size && data[j + 2] == 0 && data[j + 3] == 1))) {
+                nal_end = j;
+                break;
+            }
+        }
+        if (nal_end > nal_start) {
+            const uint8_t* nal = data + nal_start;
+            const size_t len = nal_end - nal_start;
+            const uint8_t nal_type = nal[0] & 0x1Fu;
+            if (nal_type == 7) {
+                sps.emplace_back(nal, len);
+                parse_sps_vui(nal, len, colorspace, full_range);
+            } else if (nal_type == 8) {
+                pps.emplace_back(nal, len);
+            }
+        }
+        i = nal_end;
+    }
+
+    if (sps.empty() || pps.empty()) return false;
+    out_config.clear();
+    for (const auto& n : sps) {
+        out_config.insert(out_config.end(), kAnnexBStartCode, kAnnexBStartCode + 4);
+        out_config.insert(out_config.end(), n.first, n.first + n.second);
+    }
+    for (const auto& n : pps) {
+        out_config.insert(out_config.end(), kAnnexBStartCode, kAnnexBStartCode + 4);
+        out_config.insert(out_config.end(), n.first, n.first + n.second);
+    }
+    return true;
+}
+
+} // namespace
+#endif // __SWITCH2__
 
 FFmpegVideoDecoder::FFmpegVideoDecoder() {
 //    AVBufferRef* deviceRef = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_MEDIACODEC);
@@ -85,6 +327,7 @@ int FFmpegVideoDecoder::fail_setup(const char* stage, int error_code,
     return error_code < 0 ? error_code : -1;
 }
 
+#ifdef OPENNOW_ENABLE_NVDEC
 AVPixelFormat FFmpegVideoDecoder::select_hardware_format(
     AVCodecContext* context, const AVPixelFormat* formats) {
     auto* self = context
@@ -113,6 +356,13 @@ AVPixelFormat FFmpegVideoDecoder::select_hardware_format(
         self->append_setup_diagnostic("getFormat=missing-nvtegra offered=" + offered.str());
     return AV_PIX_FMT_NONE;
 }
+#else
+AVPixelFormat FFmpegVideoDecoder::select_hardware_format(
+    AVCodecContext* context, const AVPixelFormat* formats) {
+    (void)context;
+    return formats ? formats[0] : AV_PIX_FMT_NONE;
+}
+#endif
 
 int FFmpegVideoDecoder::setup(int video_format, int width, int height,
                               int redraw_rate, void* context, int dr_flags) {
@@ -161,6 +411,41 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height,
     brls::Logger::debug("FFMpeg's AVCodec version: {}.{}.{}", AV_VERSION_MAJOR(avcodec_version()), AV_VERSION_MINOR(avcodec_version()), AV_VERSION_MICRO(avcodec_version()));
     brls::Logger::info(
         "FFmpeg: Setup with format: {}, width: {}, height: {}, fps: {}", format, width, height, redraw_rate);
+
+#ifdef __SWITCH2__
+    if ((video_format & VIDEO_FORMAT_MASK_H264) && m_uses_hardware_frames) {
+        m_switch2_hw_enabled = true;
+        m_switch2_hw_ready = false;
+        m_switch2_codec_config.clear();
+        m_switch2_frame_index = 0;
+        m_switch2_width = std::max(width, 1920);
+        m_switch2_height = std::max(height, 1080);
+        m_switch2_colorspace = AVCOL_SPC_BT709;
+        m_switch2_color_full = false;
+        m_transfer_hardware_frames = true;
+
+        AVFrameHolder::instance().prepare(
+            opennow::video::ReadyFrameQueueCapacity(),
+            opennow::video::StartupReadyFrameDepth(),
+            std::chrono::microseconds(
+                opennow::video::FrameWaitBudgetMicroseconds(redraw_rate)));
+
+        m_frames_size = 5 + 1;
+        m_frames = new AVFrame*[m_frames_size];
+        for (int i = 0; i < m_frames_size; i++) {
+            m_frames[i] = av_frame_alloc();
+            if (!m_frames[i]) {
+                return fail_setup("alloc_output_frame", AVERROR(ENOMEM),
+                                  "index=" + std::to_string(i));
+            }
+        }
+        append_setup_diagnostic("decoder=switch2-viddec setup=ok");
+        brls::Logger::info("Switch2: VideoDecoder setup ok ({})", m_setup_diagnostics);
+        return 0;
+    }
+    m_switch2_hw_enabled = false;
+    m_uses_hardware_frames = false;
+#endif
 
     av_log_set_level(AV_LOG_WARNING);
     // av_log_set_callback(&ffmpegLog); // Uncomment to see FFMpeg logs
@@ -252,7 +537,7 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height,
     m_decoder_context->width = width;
     m_decoder_context->height = height;
 
-#if defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
+#if defined(OPENNOW_ENABLE_NVDEC) && defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
         AVHWDeviceType hwType = m_uses_hardware_frames
             ? AV_HWDEVICE_TYPE_NVTEGRA : AV_HWDEVICE_TYPE_NONE;
 #elif defined(PLATFORM_ANDROID)
@@ -296,8 +581,10 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height,
         brls::Logger::info("FFmpeg: using software frames for Deko3D upload");
     }
 
+#ifdef OPENNOW_ENABLE_NVDEC
     if (m_uses_hardware_frames)
         m_decoder_context->pix_fmt = AV_PIX_FMT_NVTEGRA;
+#endif
 
     err = avcodec_open2(m_decoder_context, m_decoder, nullptr);
     if (err < 0) {
@@ -340,6 +627,11 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height,
 
 void FFmpegVideoDecoder::cleanup() {
     brls::Logger::info("FFmpeg: Cleanup...");
+
+#ifdef __SWITCH2__
+    close_switch2_decoder();
+    m_switch2_hw_enabled = false;
+#endif
 
     av_packet_free(&m_packet);
 
@@ -384,6 +676,12 @@ int FFmpegVideoDecoder::submit_decode_unit(uint8_t* indata, int inlen, int64_t p
     }
 
     m_frames_in++;
+
+#ifdef __SWITCH2__
+    if (m_switch2_hw_enabled) {
+        return submit_switch2_decode_unit(indata, inlen, pts);
+    }
+#endif
 
     int decoded_frames = 0;
     auto drain_frames = [&]() {
@@ -600,3 +898,130 @@ AVFrame* FFmpegVideoDecoder::get_frame(bool native_frame) {
 VideoDecodeStats* FFmpegVideoDecoder::video_decode_stats() {
     return (VideoDecodeStats*)&m_video_decode_stats_cache;
 }
+
+#ifdef __SWITCH2__
+
+void FFmpegVideoDecoder::close_switch2_decoder() {
+    if (m_switch2_hw_ready) {
+        videoDecoderClose(&m_switch2_decoder);
+        m_switch2_hw_ready = false;
+    }
+    m_switch2_codec_config.clear();
+}
+
+bool FFmpegVideoDecoder::ensure_switch2_decoder(const uint8_t* data, size_t size) {
+    std::vector<uint8_t> new_config;
+    int cs = m_switch2_colorspace;
+    bool full = m_switch2_color_full;
+    if (extract_sps_pps(data, size, new_config, cs, full)) {
+        m_switch2_colorspace = cs;
+        m_switch2_color_full = full;
+        if (!m_switch2_hw_ready || new_config != m_switch2_codec_config) {
+            close_switch2_decoder();
+            VideoDecoderConfig cfg {};
+            cfg.codec = ViddecCodec_H264;
+            cfg.width = static_cast<u32>(m_switch2_width);
+            cfg.height = static_cast<u32>(m_switch2_height);
+            cfg.image_count = VIDEO_DECODER_DEFAULT_IMAGES;
+            cfg.frame_rate = static_cast<u32>(m_stream_fps > 0 ? m_stream_fps : 60);
+            cfg.tiling = ViddecTilingMode_PitchLinear;
+            cfg.codec_config = new_config.data();
+            cfg.codec_config_size = new_config.size();
+            const Result rc = videoDecoderCreate(&m_switch2_decoder, &cfg);
+            if (R_FAILED(rc)) {
+                brls::Logger::error("Switch2 viddec: videoDecoderCreate failed 0x{:x}", rc);
+                m_submission.codec_error = -1;
+                return false;
+            }
+            m_switch2_hw_ready = true;
+            m_switch2_codec_config = std::move(new_config);
+        }
+    }
+    return m_switch2_hw_ready;
+}
+
+int FFmpegVideoDecoder::submit_switch2_decode_unit(const uint8_t* indata, int inlen, int64_t pts) {
+    if (!ensure_switch2_decoder(indata, static_cast<size_t>(inlen))) {
+        return m_submission.codec_error < 0 ? m_submission.codec_error : 0;
+    }
+
+    Result rc = videoDecoderSubmit(&m_switch2_decoder, indata, static_cast<size_t>(inlen),
+                                   m_switch2_frame_index++ * 16666667LL, false,
+                                   1000000000ULL);
+    if (R_FAILED(rc)) {
+        brls::Logger::error("Switch2 viddec: submit failed 0x{:x}", rc);
+        m_submission.codec_error = -1;
+        return -1;
+    }
+    m_submission.packet_accepted = true;
+
+    int decoded_frames = 0;
+    VideoFrame vf {};
+    rc = videoDecoderGetFrame(&m_switch2_decoder, &vf, 0);
+    if (rc == KERNELRESULT(TimedOut)) {
+        rc = videoDecoderGetFrame(&m_switch2_decoder, &vf, 5000000ULL);
+    }
+
+    while (R_SUCCEEDED(rc)) {
+        if (vf.width > 0 && vf.height > 0 && vf.planes[0] && vf.planes[1] &&
+            m_frames && m_frames_size > 0) {
+            AVFrame* out_frame = m_frames[m_next_frame];
+            const int w = static_cast<int>(vf.width);
+            const int h = static_cast<int>(vf.height);
+            const int ch = (h + 1) / 2;
+
+            bool buffer_ok = (out_frame->format == AV_PIX_FMT_NV12 &&
+                              out_frame->width == w && out_frame->height == h &&
+                              av_frame_make_writable(out_frame) >= 0);
+            if (!buffer_ok) {
+                av_frame_unref(out_frame);
+                out_frame->format = AV_PIX_FMT_NV12;
+                out_frame->width = w;
+                out_frame->height = h;
+                buffer_ok = (av_frame_get_buffer(out_frame, 32) >= 0);
+            }
+
+            if (buffer_ok) {
+                for (int r = 0; r < h; ++r) {
+                    std::memcpy(out_frame->data[0] + static_cast<size_t>(r) * out_frame->linesize[0],
+                                vf.planes[0] + static_cast<size_t>(r) * vf.pitches[0],
+                                static_cast<size_t>(w));
+                }
+                for (int r = 0; r < ch; ++r) {
+                    std::memcpy(out_frame->data[1] + static_cast<size_t>(r) * out_frame->linesize[1],
+                                vf.planes[1] + static_cast<size_t>(r) * vf.pitches[1],
+                                static_cast<size_t>(w));
+                }
+                out_frame->pts = pts;
+                out_frame->pkt_dts = pts;
+                out_frame->flags = 0;
+                out_frame->decode_error_flags = 0;
+                out_frame->colorspace = static_cast<AVColorSpace>(m_switch2_colorspace);
+                out_frame->color_range = m_switch2_color_full
+                    ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
+
+                m_current_frame = m_next_frame;
+                m_next_frame = (m_current_frame + 1) % m_frames_size;
+                m_frames_out++;
+                if (m_frame_gate) {
+                    if (m_frame_gate->Publish(out_frame)) ++decoded_frames;
+                } else {
+                    ++decoded_frames;
+                    AVFrameHolder::instance().push(out_frame);
+                }
+            }
+        }
+        videoDecoderReleaseFrame(&m_switch2_decoder, &vf);
+        rc = videoDecoderGetFrame(&m_switch2_decoder, &vf, 0);
+    }
+
+    if (R_FAILED(rc) && rc != KERNELRESULT(TimedOut)) {
+        brls::Logger::error("Switch2 viddec: getFrame failed 0x{:x}", rc);
+        m_submission.codec_error = -1;
+        return -1;
+    }
+
+    return decoded_frames;
+}
+
+#endif // __SWITCH2__

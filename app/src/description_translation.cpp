@@ -57,6 +57,7 @@ std::string Locale(const std::string& language){
     if(language=="it")return "it_IT";
     if(language=="fr")return "fr_FR";
     if(language=="pl")return "pl_PL";
+    if(language=="pt-BR")return "pt_BR";
     return {};
 }
 std::string PlainText(const std::string& text){

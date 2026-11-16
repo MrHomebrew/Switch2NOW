@@ -16,7 +16,7 @@
 
 #pragma once
 
-#ifdef BOREALIS_USE_DEKO3D
+#if defined(BOREALIS_USE_DEKO3D) || defined(__SWITCH2__)
 #include <borealis/platforms/switch/switch_video.hpp>
 #elif defined(__SDL2__)
 #include <borealis/platforms/sdl/sdl_video.hpp>
@@ -82,7 +82,7 @@ class SwitchPlatform : public Platform
     SwitchInputManager* inputManager;
     SwitchImeManager* imeManager;
 
-#ifdef BOREALIS_USE_DEKO3D
+#if defined(BOREALIS_USE_DEKO3D) || defined(__SWITCH2__)
     SwitchVideoContext* videoContext;
 #elif defined(__SDL2__)
     SDLVideoContext* videoContext;

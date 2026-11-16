@@ -12,12 +12,21 @@ project(SwitchNOW LANGUAGES C CXX)
 set(PLATFORM_SWITCH ON)
 # One Deko3D application supports both NVDEC zero-copy and software-decoded
 # YUV uploads. Decoder selection is a runtime setting rather than a build type.
-set(USE_GLFW OFF CACHE BOOL "Disable GLFW for unified Deko3D" FORCE)
-set(USE_DEKO3D ON CACHE BOOL "Use Deko3D on Switch" FORCE)
-set(BOREALIS_USE_DEKO3D ON CACHE BOOL "Use Borealis Deko3D driver" FORCE)
-set(USE_GLES2 OFF CACHE BOOL "Disable GLES for unified Deko3D" FORCE)
-set(USE_SDL2 OFF)
-set(USE_GLES3 OFF CACHE BOOL "Disable OpenGL ES 3 on Switch")
+if (NINTENDO_SWITCH2)
+    set(USE_GLFW OFF CACHE BOOL "Disable GLFW on Switch 2" FORCE)
+    set(USE_DEKO3D OFF CACHE BOOL "Disable Deko3D on Switch 2" FORCE)
+    set(BOREALIS_USE_DEKO3D OFF CACHE BOOL "Disable Borealis Deko3D driver on Switch 2" FORCE)
+    set(USE_GLES2 OFF CACHE BOOL "Disable GLES2 on Switch 2" FORCE)
+    set(USE_SDL2 OFF CACHE BOOL "Disable SDL2 on Switch 2" FORCE)
+    set(USE_GLES3 ON CACHE BOOL "Use OpenGL ES 3 on Switch 2" FORCE)
+else ()
+    set(USE_GLFW OFF CACHE BOOL "Disable GLFW for unified Deko3D" FORCE)
+    set(USE_DEKO3D ON CACHE BOOL "Use Deko3D on Switch" FORCE)
+    set(BOREALIS_USE_DEKO3D ON CACHE BOOL "Use Borealis Deko3D driver" FORCE)
+    set(USE_GLES2 OFF CACHE BOOL "Disable GLES for unified Deko3D" FORCE)
+    set(USE_SDL2 OFF)
+    set(USE_GLES3 OFF CACHE BOOL "Disable OpenGL ES 3 on Switch")
+endif ()
 set(BRLS_UNITY_BUILD OFF CACHE BOOL "Disable Borealis unity builds")
 set(FMT_OS OFF CACHE BOOL "Disable fmt OS-specific APIs for devkitA64")
 
@@ -33,13 +42,22 @@ add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 pkg_check_modules(JANSSON REQUIRED IMPORTED_TARGET jansson)
+if (NINTENDO_SWITCH2)
+    pkg_check_modules(OPUS REQUIRED IMPORTED_TARGET opus)
+endif ()
 
 add_subdirectory(extern/borealis/library)
 add_subdirectory(extern/libpeer)
 
 target_include_directories(borealis BEFORE PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/borealis/library/include/borealis/extern/tinyxml2)
-target_include_directories(borealis PUBLIC ${DEVKITPRO}/portlibs/switch/include)
+if (NINTENDO_SWITCH2)
+    target_include_directories(borealis PUBLIC
+        ${DEVKITPRO}/portlibs/switch2/include
+        ${DEVKITPRO}/portlibs/switch/include)
+else ()
+    target_include_directories(borealis PUBLIC ${DEVKITPRO}/portlibs/switch/include)
+endif ()
 
 file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS
     app/src/*.cpp
@@ -56,11 +74,13 @@ endif ()
 
 add_executable(${PROJECT_NAME} ${APP_SOURCES} ${PLATFORM_SOURCES})
 
+set(SWITCHNOW_FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg" CACHE PATH "FFmpeg prefix")
+
 target_include_directories(${PROJECT_NAME}
     PRIVATE
         app/src
         ${CMAKE_CURRENT_SOURCE_DIR}/extern/borealis/library/lib/extern/glfw/deps
-        ${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg/include
+        ${SWITCHNOW_FFMPEG_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/extern/libpeer/src
         ${CMAKE_CURRENT_SOURCE_DIR}/extern/libpeer/third_party/mbedtls/include
 )
@@ -70,7 +90,7 @@ target_include_directories(${PROJECT_NAME}
 target_link_directories(${PROJECT_NAME}
     BEFORE PRIVATE
         ${CMAKE_BINARY_DIR}/dist/lib
-        ${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg/lib
+        ${SWITCHNOW_FFMPEG_DIR}/lib
 )
 
 option(SWITCHNOW_NETWORK_DEBUG "Always-on credential-free connection diagnostics" OFF)
@@ -82,7 +102,11 @@ endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     SWITCHNOW_NETWORK_DEBUG=$<BOOL:${SWITCHNOW_NETWORK_DEBUG}>
     PLATFORM_SWITCH __SWITCH__ HAS_SOCKLEN_T=1)
-if (PLATFORM_SWITCH)
+if (NINTENDO_SWITCH2)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_GL_RENDERER BOREALIS_USE_OPENGL USE_GLES3 __SWITCH2__)
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}-switch2.map)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/resources/shaders")
+elseif (PLATFORM_SWITCH)
     target_compile_definitions(${PROJECT_NAME} PRIVATE USE_DK_RENDERER BOREALIS_USE_DEKO3D OPENNOW_ENABLE_NVDEC)
     find_program(NX_UAM_EXE NAMES uam HINTS "${DEVKITPRO}/tools/bin")
     if (NOT NX_UAM_EXE)
@@ -127,6 +151,7 @@ target_link_libraries(${PROJECT_NAME}
         borealis
         PkgConfig::CURL
         PkgConfig::JANSSON
+        $<$<BOOL:${NINTENDO_SWITCH2}>:PkgConfig::OPUS>
         peer
         -lavformat
         -lavcodec
@@ -136,7 +161,13 @@ target_link_libraries(${PROJECT_NAME}
         bz2
 )
 
-set(PROJECT_AUTHOR "Blade-Punisher")
+if (NINTENDO_SWITCH2)
+    set(PROJECT_AUTHOR "Blade-Punisher / David Kalil Braga")
+    set(SWITCHNOW_NRO_NAME "${PROJECT_NAME}-switch2.nro")
+else ()
+    set(PROJECT_AUTHOR "Blade-Punisher")
+    set(SWITCHNOW_NRO_NAME "${PROJECT_NAME}.nro")
+endif ()
 set(PROJECT_VERSION_STRING "1.3.0" CACHE STRING "Display version embedded in SwitchNOW")
 set(PROJECT_TITLEID "05004F4E4F575358")
 set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/icon/icon.jpg)
@@ -232,7 +263,7 @@ add_custom_target(${PROJECT_NAME}.nro
         ${PROJECT_ROMFS_DIR}/updater/SwitchNOWUpdater.nro
     COMMAND ${NX_ELF2NRO_EXE}
         ${PROJECT_NAME}.elf
-        ${PROJECT_NAME}.nro
+        ${SWITCHNOW_NRO_NAME}
         --icon=${PROJECT_ICON}
         --nacp=${PROJECT_NAME}.nacp
         --romfsdir=${PROJECT_ROMFS_DIR}

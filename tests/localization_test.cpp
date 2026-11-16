@@ -8,7 +8,7 @@
 int main()
 {
     const auto& languages = opennow::InterfaceLanguageOptions();
-    assert(languages.size() == 8);
+    assert(languages.size() == 9);
 
     std::set<std::string> codes;
     for (const auto& language : languages)
@@ -38,7 +38,7 @@ int main()
            std::string::npos);
 
     const std::vector<std::string> translated_languages = {
-        "zh-CN", "es", "ru", "it", "fr", "pl", "uk",
+        "pt-BR", "zh-CN", "es", "ru", "it", "fr", "pl", "uk",
     };
     for (const auto& language : translated_languages)
     {

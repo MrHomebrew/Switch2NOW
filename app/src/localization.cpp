@@ -5,9 +5,9 @@
 namespace opennow {
 namespace {
 using namespace std::literals;
-struct TranslationEntry { std::string_view key; std::array<std::string_view,7> text; };
+struct TranslationEntry { std::string_view key; std::array<std::string_view,8> text; };
 #include "localization_catalog.inc"
-constexpr std::array<std::string_view,7> kCodes{"ru","uk","es","it","fr","pl","zh-CN"};
+constexpr std::array<std::string_view,8> kCodes{"ru","uk","es","it","fr","pl","zh-CN","pt-BR"};
 std::string g_language="en";
 size_t g_language_index=kCodes.size();
 size_t LanguageIndex(std::string_view code) {
@@ -40,7 +40,7 @@ bool MatchPattern(std::string_view message,std::string_view pattern,std::vector<
 }
 const std::vector<InterfaceLanguageOption>& InterfaceLanguageOptions() {
     static const std::vector<InterfaceLanguageOption> options={
-        {"en","English"},{"zh-CN","简体中文"},{"es","Español"},{"ru","Русский"},
+        {"en","English"},{"pt-BR","Português (Brasil)"},{"zh-CN","简体中文"},{"es","Español"},{"ru","Русский"},
         {"it","Italiano"},{"fr","Français"},{"pl","Polski"},{"uk","Українська"}};
     return options;
 }

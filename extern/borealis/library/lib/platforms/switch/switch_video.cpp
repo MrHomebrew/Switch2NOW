@@ -19,6 +19,221 @@ limitations under the License.
 #include <borealis/core/application.hpp>
 #include <borealis/platforms/switch/switch_video.hpp>
 
+#ifdef __SWITCH2__
+
+#include <GLES3/gl3.h>
+#define NANOVG_GLES3_IMPLEMENTATION
+#include <nanovg_gl.h>
+#include <cmath>
+
+#define HANDHELD_WIDTH 1280.0f
+#define HANDHELD_HEIGHT 720.0f
+
+#define DOCKED_WIDTH 1920.f
+#define DOCKED_HEIGHT 1080.f
+
+namespace brls
+{
+
+SwitchVideoContext::SwitchVideoContext()
+{
+    Result rc = appletGetDefaultDisplayResolutionChangeEvent(&this->defaultDisplayResolutionChangeEvent);
+    if (R_FAILED(rc))
+    {
+        Logger::warning(fmt::runtime("switch2: failed to get display resolution change event ({:#x}), falling back to operation mode"), rc);
+        this->displayResolutionChangeEventReady = false;
+    }
+
+    this->updateWindowSize();
+
+    this->eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (this->eglDisplay == EGL_NO_DISPLAY || !eglInitialize(this->eglDisplay, nullptr, nullptr))
+    {
+        fatal(fmt::format("switch2: eglInitialize failed (0x{:x})", eglGetError()));
+    }
+
+    eglBindAPI(EGL_OPENGL_ES_API);
+
+    const EGLint configAttributes[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_DEPTH_SIZE, 24,
+        EGL_STENCIL_SIZE, 8,
+        EGL_NONE,
+    };
+    EGLConfig config = nullptr;
+    EGLint configCount = 0;
+    if (!eglChooseConfig(this->eglDisplay, configAttributes, &config, 1, &configCount) || configCount == 0)
+    {
+        fatal(fmt::format("switch2: eglChooseConfig failed (0x{:x})", eglGetError()));
+    }
+
+    this->eglSurface = eglCreateWindowSurface(this->eglDisplay, config, nwindowGetDefault(), nullptr);
+    if (this->eglSurface == EGL_NO_SURFACE)
+    {
+        fatal(fmt::format("switch2: eglCreateWindowSurface failed (0x{:x})", eglGetError()));
+    }
+
+    const EGLint contextAttributes[] = {
+        EGL_CONTEXT_MAJOR_VERSION, 3,
+        EGL_NONE,
+    };
+    this->eglContext = eglCreateContext(this->eglDisplay, config, EGL_NO_CONTEXT, contextAttributes);
+    if (this->eglContext == EGL_NO_CONTEXT)
+    {
+        fatal(fmt::format("switch2: eglCreateContext failed (0x{:x})", eglGetError()));
+    }
+
+    if (!eglMakeCurrent(this->eglDisplay, this->eglSurface, this->eglSurface, this->eglContext))
+    {
+        fatal(fmt::format("switch2: eglMakeCurrent failed (0x{:x})", eglGetError()));
+    }
+
+    Logger::info("switch2: GL Vendor: {}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
+    Logger::info("switch2: GL Renderer: {}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+    Logger::info("switch2: GL Version: {}", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+
+    this->nvgContext = nvgCreateGLES3(NVG_STENCIL_STROKES | NVG_ANTIALIAS);
+    if (!this->nvgContext)
+    {
+        fatal("switch2: nvgCreateGLES3 failed");
+    }
+
+    glViewport(0, 0, static_cast<GLsizei>(this->framebufferWidth), static_cast<GLsizei>(this->framebufferHeight));
+    Application::setWindowSize(roundf(this->framebufferWidth), roundf(this->framebufferHeight));
+    setSwapInterval(VideoContext::swapInterval);
+}
+
+void SwitchVideoContext::updateWindowSize()
+{
+    int32_t width = 0, height = 0;
+    Result rc = appletGetDefaultDisplayResolution(&width, &height);
+    if (R_SUCCEEDED(rc) && width > 0 && height > 0)
+    {
+        this->framebufferWidth  = static_cast<float>(width);
+        this->framebufferHeight = static_cast<float>(height);
+    }
+    else
+    {
+        switch (appletGetOperationMode())
+        {
+            case AppletOperationMode_Handheld:
+                this->framebufferWidth  = HANDHELD_WIDTH;
+                this->framebufferHeight = HANDHELD_HEIGHT;
+                break;
+            case AppletOperationMode_Console:
+                this->framebufferWidth  = DOCKED_WIDTH;
+                this->framebufferHeight = DOCKED_HEIGHT;
+                break;
+            default:
+                return;
+        }
+    }
+
+    nwindowSetDimensions(nwindowGetDefault(),
+        static_cast<u32>(roundf(this->framebufferWidth)),
+        static_cast<u32>(roundf(this->framebufferHeight)));
+
+    if (this->eglContext != EGL_NO_CONTEXT)
+    {
+        glViewport(0, 0,
+            static_cast<GLsizei>(roundf(this->framebufferWidth)),
+            static_cast<GLsizei>(roundf(this->framebufferHeight)));
+    }
+
+    Application::onWindowResized(roundf(this->framebufferWidth), roundf(this->framebufferHeight));
+}
+
+void SwitchVideoContext::clear(NVGcolor color)
+{
+    glClearColor(color.r, color.g, color.b, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+}
+
+void SwitchVideoContext::resetState()
+{
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+}
+
+void SwitchVideoContext::resetFramebuffer()
+{
+    Logger::info("switch2: resetFramebuffer");
+    this->updateWindowSize();
+}
+
+void SwitchVideoContext::beginFrame()
+{
+    if (this->displayResolutionChangeEventReady &&
+        R_SUCCEEDED(eventWait(&this->defaultDisplayResolutionChangeEvent, 0)))
+    {
+        this->resetFramebuffer();
+    }
+}
+
+void SwitchVideoContext::endFrame()
+{
+    if (frameCapture)
+    {
+        auto capture = std::move(frameCapture);
+        frameCapture = {};
+        capture();
+    }
+    eglSwapBuffers(this->eglDisplay, this->eglSurface);
+}
+
+void SwitchVideoContext::setSwapInterval(int interval)
+{
+    VideoContext::swapInterval = interval;
+    if (this->eglDisplay != EGL_NO_DISPLAY)
+        eglSwapInterval(this->eglDisplay, interval);
+}
+
+void SwitchVideoContext::appletCallback(AppletHookType hookType)
+{
+    if (hookType == AppletHookType_OnOperationMode && !this->displayResolutionChangeEventReady)
+        resetFramebuffer();
+}
+
+NVGcontext* SwitchVideoContext::getNVGContext()
+{
+    return this->nvgContext;
+}
+
+SwitchVideoContext::~SwitchVideoContext()
+{
+    if (this->nvgContext)
+    {
+        nvgDeleteGLES3(this->nvgContext);
+        this->nvgContext = nullptr;
+    }
+    if (this->eglDisplay != EGL_NO_DISPLAY)
+    {
+        eglMakeCurrent(this->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (this->eglContext != EGL_NO_CONTEXT)
+            eglDestroyContext(this->eglDisplay, this->eglContext);
+        if (this->eglSurface != EGL_NO_SURFACE)
+            eglDestroySurface(this->eglDisplay, this->eglSurface);
+        eglTerminate(this->eglDisplay);
+        this->eglDisplay = EGL_NO_DISPLAY;
+    }
+}
+
+double SwitchVideoContext::getScaleFactor()
+{
+    return 1.0;
+}
+
+} // namespace brls
+
+#else // !__SWITCH2__
+
 // nanovg implementation
 #include <nanovg_dk.h>
 
@@ -336,3 +551,5 @@ void SwitchVideoContext::queueFlush()
 }
 
 } // namespace brls
+
+#endif // !__SWITCH2__
