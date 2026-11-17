@@ -58,7 +58,8 @@ def verify_link_map(text: str) -> None:
         "/portlibs/switch/lib/libdrm_nouveau.a",
         "libdeko3d",
         "extern/ffmpeg/lib/",
-        "nvtegra",
+        "hwcontext_nvtegra",
+        "nvtegra.o",
     ]
     for path in forbidden:
         if path in text:

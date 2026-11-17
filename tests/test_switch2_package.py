@@ -57,7 +57,7 @@ class TestSwitch2Package(unittest.TestCase):
             verify_link_map(
                 "/opt/devkitpro/libounce/lib/libnx.a\n"
                 "/opt/devkitpro/portlibs/switch2/lib/libEGL.a\n"
-                "extern/ffmpeg/lib/libavcodec.a\n"
+                "extern/ffmpeg/lib/libavcodec.a(hwcontext_nvtegra.o)\n"
             )
 
 
