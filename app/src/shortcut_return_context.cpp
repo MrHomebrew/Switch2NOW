@@ -30,9 +30,9 @@ static bool SaveGamePageSnapshot() {
     constexpr const char* path = "sdmc:/switch/SwitchNOW/.shortcut/game_page.png";
     std::remove(path); // Never reuse another game's background after a failure.
 #ifdef __SWITCH2__
-    const auto width = brls::Application::windowWidth;
-    const auto height = brls::Application::windowHeight;
-    if (!width || !height || width > 1920 || height > 1080) return false;
+    const int width = static_cast<int>(brls::Application::windowWidth);
+    const int height = static_cast<int>(brls::Application::windowHeight);
+    if (width <= 0 || height <= 0 || width > 1920 || height > 1080) return false;
     const size_t stride = static_cast<size_t>(width) * 4;
     std::vector<unsigned char> bottom_up(stride * height);
     std::vector<unsigned char> top_down(stride * height);

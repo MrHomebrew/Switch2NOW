@@ -19,7 +19,8 @@ void RequestProbe(const std::shared_ptr<Probe>& job,Flow::Clock::time_point now)
         if(!job->active){job->pending=false;return;}
         Detection result;
         try {
-            const auto width=brls::Application::windowWidth,height=brls::Application::windowHeight;
+            const int width=static_cast<int>(brls::Application::windowWidth);
+            const int height=static_cast<int>(brls::Application::windowHeight);
             if(width>=640&&width<=1920&&height>=360&&height<=1080) {
                 std::vector<unsigned char> row(static_cast<size_t>(width)*4);
                 std::array<std::vector<unsigned char>,kRowY.size()> lines;
@@ -32,7 +33,7 @@ void RequestProbe(const std::shared_ptr<Probe>& job,Flow::Clock::time_point now)
                 Samples samples{};
                 for(unsigned i=0;i<samples.size();++i) {
                     const unsigned line=i<2?0:i<6?1:i<10?2:3+(i-10)/4;
-                    const auto x=static_cast<unsigned>(kSampleX[i])*width/1280;
+                    const auto x=static_cast<unsigned>(kSampleX[i])*static_cast<unsigned>(width)/1280;
                     const auto* p=lines[line].data()+x*4;
                     samples[i]={p[0],p[1],p[2]};
                 }
