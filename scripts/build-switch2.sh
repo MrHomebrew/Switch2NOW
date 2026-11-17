@@ -26,9 +26,11 @@ if [[ ! -f "$FFMPEG_PREFIX/lib/libavcodec.a" ]] || [[ ! -f "$FFMPEG_PREFIX/lib/l
   echo "==> Building Switch 2 FFmpeg static archives..."
   rm -rf "$FFMPEG_BUILD"
   mkdir -p "$FFMPEG_BUILD" "$FFMPEG_PREFIX"
+  chmod +x "$ROOT_DIR/extern/ffmpeg/upstream/configure"
+  find "$ROOT_DIR/extern/ffmpeg/upstream" -name '*.sh' -exec chmod +x {} +
   (
     cd "$FFMPEG_BUILD"
-    "$ROOT_DIR/extern/ffmpeg/upstream/configure" \
+    bash "$ROOT_DIR/extern/ffmpeg/upstream/configure" \
       --prefix="$FFMPEG_PREFIX" \
       --enable-gpl \
       --disable-shared \

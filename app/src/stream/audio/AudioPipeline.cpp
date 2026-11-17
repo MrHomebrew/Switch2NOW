@@ -160,6 +160,7 @@ struct AudioPipeline::Impl {
     }
 
     bool initialize_audio() {
+        Result rc = 0;
 #ifdef __SWITCH2__
         int opus_err = 0;
         opus_decoder = opus_decoder_create(kSampleRate, kChannels, &opus_err);
@@ -169,7 +170,7 @@ struct AudioPipeline::Impl {
         }
         decoder_ready = true;
 #else
-        Result rc = hwopusDecoderInitialize(&decoder, kSampleRate, kChannels);
+        rc = hwopusDecoderInitialize(&decoder, kSampleRate, kChannels);
         if (R_FAILED(rc)) {
             log("INIT hwopus_failed rc=0x" + hex_result(rc));
             return false;
@@ -177,7 +178,7 @@ struct AudioPipeline::Impl {
         decoder_ready = true;
 #endif
 
-        Result rc = audoutInitialize();
+        rc = audoutInitialize();
         if (R_FAILED(rc)) {
             log("INIT audout_failed rc=0x" + hex_result(rc));
             return false;

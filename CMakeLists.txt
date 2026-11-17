@@ -151,7 +151,6 @@ target_link_libraries(${PROJECT_NAME}
         borealis
         PkgConfig::CURL
         PkgConfig::JANSSON
-        $<$<BOOL:${NINTENDO_SWITCH2}>:PkgConfig::OPUS>
         peer
         -lavformat
         -lavcodec
@@ -162,6 +161,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 if (NINTENDO_SWITCH2)
+    target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::OPUS)
     set(PROJECT_AUTHOR "Blade-Punisher / David Kalil Braga")
     set(SWITCHNOW_NRO_NAME "${PROJECT_NAME}-switch2.nro")
 else ()
