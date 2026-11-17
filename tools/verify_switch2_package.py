@@ -56,6 +56,7 @@ def verify_link_map(text: str) -> None:
         "/portlibs/switch/lib/libEGL.a",
         "/portlibs/switch/lib/libglapi.a",
         "/portlibs/switch/lib/libdrm_nouveau.a",
+        "/portlibs/switch/lib/libav",
         "libdeko3d",
         "extern/ffmpeg/lib/",
         "hwcontext_nvtegra",
@@ -63,7 +64,8 @@ def verify_link_map(text: str) -> None:
     ]
     for path in forbidden:
         if path in text:
-            raise ValueError("Forbidden Switch 1 dependency in link map: " + path)
+            sample = next((line.strip() for line in text.splitlines() if path in line), "")
+            raise ValueError(f"Forbidden Switch 1 dependency in link map: {path} ({sample})")
     for path in ["/libounce/lib/", "/portlibs/switch2/lib/"]:
         if path not in text:
             raise ValueError("Missing Switch 2 dependency in link map: " + path)

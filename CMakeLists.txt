@@ -152,10 +152,10 @@ target_link_libraries(${PROJECT_NAME}
         PkgConfig::CURL
         PkgConfig::JANSSON
         peer
-        -lavformat
-        -lavcodec
-        -lavutil
-        -lswresample
+        ${SWITCHNOW_FFMPEG_DIR}/lib/libavformat.a
+        ${SWITCHNOW_FFMPEG_DIR}/lib/libavcodec.a
+        ${SWITCHNOW_FFMPEG_DIR}/lib/libswresample.a
+        ${SWITCHNOW_FFMPEG_DIR}/lib/libavutil.a
         z
         bz2
 )
