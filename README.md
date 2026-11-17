@@ -162,6 +162,19 @@ Existing installations are migrated automatically from
 Application data, settings and optional debug logs are stored in
 `sdmc:/switch/SwitchNOW/`.
 
+## Known issues & login workaround (`v1.3.0`)
+
+Confirmed on both **Switch 1** (`SwitchNOW.nro`) and **Switch 2** (`SwitchNOW-switch2.nro`):
+
+- **Default `NVIDIA` provider login / empty library / `ENTITLEMENT_FAILURE_STATUS` (`HTTP 403`):**
+  - Direct email/password sign-in with the default `NVIDIA` provider currently fails (NVIDIA 2FA / external verification changes), and QR fallback on the `NVIDIA` provider can leave `My Library` empty (`Loaded 0 games`) and fail game launches with `HTTP 403 ... ENTITLEMENT_FAILURE_STATUS` (`8A910006`).
+  - **Recommended workaround:** Choose an **Alliance provider such as `ABYA`** in the provider picker when signing in. Signing in via the **ABYA** provider authenticates properly and lists your library games.
+- **QR Code dialog cropping:**
+  - On the QR login screen, the rendered QR matrix can be slightly clipped at the bottom edge (especially in `720p` handheld mode), though scanning it with a phone/PC still works.
+- **UI freeze immediately after login:**
+  - Right after completing login, the UI may freeze before advancing back to the library. Because the OAuth session is already saved to `sdmc:/switch/SwitchNOW/` when login completes, **closing SwitchNOW and reopening it** lands directly in the signed-in session.
+  - See [docs/SWITCH2_KNOWN_ISSUES.md](docs/SWITCH2_KNOWN_ISSUES.md) for tracking details.
+
 ## Build requirements
 
 - **Switch 1:** Windows with MSYS2 at `C:\msys64` or Unix/MSYS2 shell, devkitPro (`devkitA64`, Switch portlibs, CMake/Ninja): `.\build-switch.ps1` -> `build/switch/SwitchNOW.nro`.
