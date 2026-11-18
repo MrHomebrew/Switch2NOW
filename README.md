@@ -4,6 +4,8 @@
 
 # SwitchNOW (Switch 1 & Switch 2)
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20project-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/davidkalil10)
+
 Original project developed and maintained by **Blade-Punisher**.  
 Nintendo Switch 2 port (`ounce-devkit` / `OunceVK` + hardware H.264 decoding) and Brazilian Portuguese (`pt-BR`) localization by **David Kalil Braga ([@davidkalil10](https://github.com/davidkalil10))**.
 
@@ -261,3 +263,11 @@ optional components are selected by the build configuration.
 Each upstream project remains subject to its own license and copyright notices.
 This acknowledgement list does not replace the license files shipped with the
 source and dependency trees.
+
+## Support
+
+If you find **SwitchNOW (Switch 2 Port)** and our Nintendo Switch 2 homebrew ports useful, consider buying me a coffee to support continued development and maintenance:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/davidkalil10)
+
+👉 **[https://ko-fi.com/davidkalil10](https://ko-fi.com/davidkalil10)**
