@@ -115,6 +115,12 @@ line sizes. On Switch 2 the first decoded frame is also dumped to
 `sdmc:/switch/SwitchNOW/first_frame.ppm` so we can verify whether the decoded
 frame itself contains the whole picture.
 
+## Frame-probe timing extension
+The first frame can be a dark loading or transition frame, so it is not enough
+to decide whether the crop exists in the decoded stream. The probe now also
+writes `frame_probe_3s.ppm` and `frame_probe_8s.ppm`, captured from decoded
+frames about 3 and 8 seconds after the first one.
+
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
 Build artifacts come from this fork's `switch2-build.yml` workflow.

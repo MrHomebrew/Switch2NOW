@@ -159,7 +159,7 @@ static void yuv_to_rgb(const AVFrame* frame, int y, int u, int v, uint8_t& r, ui
     b = clamp_u8((298 * c + 516 * d + 128) >> 8);
 }
 
-static void dump_first_frame_probe(const AVFrame* frame) {
+static void dump_frame_probe(const AVFrame* frame, const char* path) {
 #if !defined(__SWITCH2__)
     if (!opennow::StreamDiagnosticsEnabled())
         return;
@@ -172,7 +172,6 @@ static void dump_first_frame_probe(const AVFrame* frame) {
     mkdir("sdmc:/switch/SwitchNOW", 0777);
 #endif
 
-    const char* path = "sdmc:/switch/SwitchNOW/first_frame.ppm";
     FILE* out = fopen(path, "wb");
     if (!out) {
         render_diag_log("frame_probe failed_open path=%s", path);
@@ -615,12 +614,30 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
                         frame ? frame->color_range : -1,
                         frame ? frame->colorspace : -1);
     }
+#if defined(OPENNOW_ENABLE_FRAME_PROBE)
+    static std::chrono::steady_clock::time_point probe_start;
+    static bool probe_3s_done = false;
+    static bool probe_8s_done = false;
     if (!m_frame_probe_dumped) {
         m_frame_probe_dumped = true;
-#if defined(OPENNOW_ENABLE_FRAME_PROBE)
-        dump_first_frame_probe(frame);
-#endif
+        probe_start = std::chrono::steady_clock::now();
+        dump_frame_probe(frame, "sdmc:/switch/SwitchNOW/first_frame.ppm");
+    } else {
+        const auto elapsed = std::chrono::steady_clock::now() - probe_start;
+        if (!probe_3s_done && elapsed >= std::chrono::seconds(3)) {
+            probe_3s_done = true;
+            dump_frame_probe(frame, "sdmc:/switch/SwitchNOW/frame_probe_3s.ppm");
+        }
+        if (!probe_8s_done && elapsed >= std::chrono::seconds(8)) {
+            probe_8s_done = true;
+            dump_frame_probe(frame, "sdmc:/switch/SwitchNOW/frame_probe_8s.ppm");
+        }
     }
+#else
+    if (!m_frame_probe_dumped) {
+        m_frame_probe_dumped = true;
+    }
+#endif
 
 #if defined(__SWITCH2__)
     // The logical Borealis view is 1280x720, but raw GL is not scaled by
