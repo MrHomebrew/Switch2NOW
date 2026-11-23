@@ -20,6 +20,11 @@
 #if defined(__SWITCH2__)
 #include <switch.h>
 #include <EGL/egl.h>
+// Always dump the first decoded frame on Switch 2. The PPM lets us verify
+// whether the crop happens inside the decoder output or in the GL mapping.
+#if !defined(OPENNOW_ENABLE_FRAME_PROBE)
+#define OPENNOW_ENABLE_FRAME_PROBE 1
+#endif
 #endif
 
 static inline uint64_t LiGetMillis() {
@@ -155,8 +160,10 @@ static void yuv_to_rgb(const AVFrame* frame, int y, int u, int v, uint8_t& r, ui
 }
 
 static void dump_first_frame_probe(const AVFrame* frame) {
+#if !defined(__SWITCH2__)
     if (!opennow::StreamDiagnosticsEnabled())
         return;
+#endif
     if (!frame || frame->width <= 0 || frame->height <= 0 || !frame->data[0])
         return;
 
@@ -568,18 +575,11 @@ void GLVideoRenderer::checkAndUpdateScale(int width, int height,
         glUniformMatrix3fv(m_yuvmat_location, 1, GL_FALSE,
                            gl_color_matrix(frame->colorspace, colorFull));
 
-        float frameAspect = ((float)m_frame_height / (float)m_frame_width);
-        float screenAspect = ((float)m_screen_height / (float)m_screen_width);
-
-        if (frameAspect > screenAspect) {
-            float multiplier = frameAspect / screenAspect;
-            glUniform4f(m_uv_data_location, 0.5f - 0.5f * (1.0f / multiplier),
-                        0.0f, multiplier, 1.0f);
-        } else {
-            float multiplier = screenAspect / frameAspect;
-            glUniform4f(m_uv_data_location, 0.0f,
-                        0.5f - 0.5f * (1.0f / multiplier), 1.0f, multiplier);
-        }
+        // The viewport already contains the decoded frame inside the surface.
+        // Keep the source rectangle at the full texture; the GL viewport is
+        // responsible for any letterboxing. The zoom window is applied every
+        // frame from drawLatest().
+        glUniform4f(m_uv_data_location, 0.0f, 0.0f, 1.0f, 1.0f);
     }
 }
 
@@ -700,10 +700,19 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
         FILE* diag = fopen("sdmc:/switch/SwitchNOW/viewport_fix.log", "a");
         if (diag)
         {
-            fprintf(diag, "view=%dx%d display=%dx%d egl=%dx%d viewport=%d,%d %dx%d zoom=%d%% frame=%dx%d\n",
+            fprintf(diag,
+                    "view=%dx%d display=%dx%d egl=%dx%d viewport=%d,%d %dx%d "
+                    "zoom=%d%% frame=%dx%d uv=%.4f,%.4f %.4fx%.4f "
+                    "coded=%dx%d linesize=%d/%d/%d crop=%d,%d,%d,%d\n",
                     width, height, displayWidth, displayHeight, eglWidth, eglHeight,
                     viewportX, viewportY, viewportWidth, viewportHeight, zoomPercent,
-                    frame ? frame->width : -1, frame ? frame->height : -1);
+                    frame ? frame->width : -1, frame ? frame->height : -1,
+                    uvX, uvY, uvWidth, uvHeight,
+                    frame ? frame->coded_width : -1, frame ? frame->coded_height : -1,
+                    frame ? frame->linesize[0] : 0, frame ? frame->linesize[1] : 0,
+                    frame ? frame->linesize[2] : 0,
+                    frame ? frame->crop_top : -1, frame ? frame->crop_bottom : -1,
+                    frame ? frame->crop_left : -1, frame ? frame->crop_right : -1);
             fclose(diag);
         }
     }

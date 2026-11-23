@@ -107,6 +107,28 @@ Controls:
 The **Exit to hbmenu** action and the **L + R** quit chord from the fourth pass
 are unchanged.
 
+## Sixth pass (full-frame UV mapping + decoded-frame probe)
+The user confirmed that even at 50% only a segment of the picture was visible,
+just drawn smaller. The viewport rectangle changed, but the source pixels did
+not, so the crop had to be in the GL texture mapping (or in the decoded frame
+itself).
+
+Two defects were fixed:
+
+1. `GLShaders.hpp` used `uv = (tex_position - uv_data.xy) * uv_data.zw`, which
+   treats `xy` as a subtraction before scaling. A centred zoom window such as
+   `u0 = 0.25, width = 0.5` was therefore sampled as
+   `(t - 0.25) * 0.5 = -0.125 .. 0.375`, not `0.25 .. 0.75`. All four shaders
+   now use the direct rectangle form `uv = uv_data.xy + tex_position * uv_data.zw`.
+2. `checkAndUpdateScale()` still applied an old aspect-derived UV crop before
+   `drawLatest()` overwrote it. It now always uploads `(0, 0, 1, 1)`; the GL
+   viewport handles letterboxing and `drawLatest()` handles zoom.
+
+`viewport_fix.log` now also records the exact UV rectangle, coded frame size,
+plane line sizes and decoder crop values. On Switch 2 the first decoded frame
+is dumped to `sdmc:/switch/SwitchNOW/first_frame.ppm` so the actual decoder
+output can be compared with what is drawn.
+
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
 Build artifacts come from this fork's `switch2-build.yml` workflow.
