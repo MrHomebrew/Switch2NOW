@@ -72,6 +72,7 @@ public:
 
 private:
     void ExitStream(bool end_cloud = true);
+    void ExitToHbmenu();
     void StartRecovery(std::chrono::steady_clock::time_point now);
     bool DrawRecovery(NVGcontext* vg, float x, float y, float width, float height);
     void StopCloudSessionAsync();
@@ -222,6 +223,9 @@ private:
     bool stream_overlay_a_was_down_ = false;
     bool stream_overlay_up_was_down_ = false;
     bool stream_overlay_down_was_down_ = false;
+    bool stream_overlay_left_was_down_ = false;
+    bool stream_overlay_right_was_down_ = false;
+    bool stream_overlay_display_submenu_ = false;
     std::size_t stream_overlay_selection_ = 0;
     std::string stream_overlay_status_;
     std::chrono::steady_clock::time_point stream_overlay_status_until_ {};
@@ -255,6 +259,7 @@ private:
     std::chrono::steady_clock::time_point nte_status_until_ {};
     bool exit_requested_ = false;
     bool exit_combo_was_down_ = false;
+    bool quit_combo_was_down_ = false;
     bool touch_was_down_ = false;
     bool touch_pointer_initialized_ = false;
     float touch_pointer_x_ = 0.0f;

@@ -61,6 +61,23 @@ touchscreen. The panel closes automatically 3 seconds after the last input;
 there is no permanent on-screen control. The active mode is written to
 `sdmc:/switch/SwitchNOW/viewport_fix.log` whenever it changes.
 
+## Fourth pass (display modes in the Minus+Plus menu + quit to hbmenu)
+The transient UP panel is useful, but the same display modes are now also
+reachable from the existing **MINUS + PLUS** stream menu:
+
+- New **Display mode >** action opens a submenu listing all six modes.
+  UP/DOWN or LEFT/RIGHT moves the highlight, **A** applies it, **B** goes back.
+  The applied mode is marked with `*`.
+- New **Exit to hbmenu (quit app)** action stops the stream cleanly and calls
+  `brls::Application::quit()`, so the process ends and hbmenu takes over. This
+  is different from **Exit stream**, which only returns to the in-app launcher.
+- New two-button chord **L + R** quits to hbmenu directly, without opening the
+  menu. It is distinct from `MINUS + R3` (keyboard command layer) and
+  `MINUS + ZL + ZR` (exit stream only).
+
+`brls::Application::setGlobalQuit(false)` is unchanged; the explicit `quit()`
+call still works because the main loop checks `quitRequested` directly.
+
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
 Build artifacts come from this fork's `switch2-build.yml` workflow.
