@@ -83,6 +83,9 @@ private:
     void ActivateStreamOverlayAction(std::chrono::steady_clock::time_point now);
     void DrawStreamOverlay(NVGcontext* vg, float x, float y, float width, float height,
                            std::chrono::steady_clock::time_point now);
+    void UpdateDisplayModeMenu(const brls::ControllerState& state,
+                               std::chrono::steady_clock::time_point now);
+    void DrawDisplayModeMenu(NVGcontext* vg, float x, float y, float width, float height);
     void RefreshNetworkInfo(std::chrono::steady_clock::time_point now);
     void DrawNetworkWarning(NVGcontext* vg, float x, float y, float width, float height,
                             std::chrono::steady_clock::time_point now);
@@ -258,6 +261,15 @@ private:
     float touch_pointer_y_ = 0.0f;
     int touch_pointer_stream_width_ = 0;
     int touch_pointer_stream_height_ = 0;
+    bool display_mode_up_was_down_ = false;
+    bool display_mode_left_was_down_ = false;
+    bool display_mode_right_was_down_ = false;
+    bool display_mode_a_was_down_ = false;
+    bool display_mode_menu_visible_ = false;
+    bool display_menu_touch_active_ = false;
+    int display_mode_selection_ = 0;
+    std::chrono::steady_clock::time_point display_mode_up_press_at_{};
+    std::chrono::steady_clock::time_point display_mode_hide_at_{};
     opennow::input::ShortcutRouter shortcut_router_;
     opennow::input::ShortcutSequence shortcut_sequence_;
     opennow::input::KeyboardShortcut shortcut_key_ = opennow::input::KeyboardShortcut::Escape;

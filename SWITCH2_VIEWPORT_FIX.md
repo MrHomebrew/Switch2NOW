@@ -36,6 +36,31 @@ viewport on `__SWITCH2__`, while keeping the logical view size only for the 16:9
 UV aspect calculation. A one-shot `sdmc:/switch/SwitchNOW/viewport_fix.log`
 records the view, display and chosen viewport sizes for verification.
 
+## Third pass (fit inside the screen + transient display menu)
+Testing of the second patch showed the video filling the screen but appearing
+zoomed/cropped. The log recorded `view=1280x720 display=1920x1080` with a
+`1280x720` decoded frame, so all aspect ratios were 16:9 and the old cover UV
+math could not explain the crop. The likely cause is that
+`appletGetDefaultDisplayResolution()` can report a resolution different from the
+actual EGL surface after a dock change, so a viewport derived from it can be
+larger than the surface.
+
+The renderer now queries `eglQuerySurface()` for the authoritative physical
+size, restores the full surface viewport in `SwitchVideoContext::beginFrame()`
+from the same source, and supports a small set of modes:
+
+- `FIT` (default): centred, aspect-correct viewport; the whole frame stays
+  inside the screen with black bars on unused edges.
+- `FILL`: cover mode, crops the longer edge.
+- `STRETCH`: full frame stretched to the full surface.
+- `ZOOM 1.25x`, `1.5x`, `2x`: centre crop at the selected zoom.
+
+Hold **UP** on the controller for ~400 ms to reveal a small top-right panel.
+Move the highlight with **LEFT/RIGHT**, confirm with **A**, or tap a row on the
+touchscreen. The panel closes automatically 3 seconds after the last input;
+there is no permanent on-screen control. The active mode is written to
+`sdmc:/switch/SwitchNOW/viewport_fix.log` whenever it changes.
+
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
 Build artifacts come from this fork's `switch2-build.yml` workflow.

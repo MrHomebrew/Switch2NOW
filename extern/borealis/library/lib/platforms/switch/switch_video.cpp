@@ -176,24 +176,24 @@ void SwitchVideoContext::beginFrame()
         this->resetFramebuffer();
     }
 
-    // The GLES3 video renderer sets glViewport() to the stream view size while
-    // a stream is playing. On Switch 2 the viewport is otherwise only restored
-    // when a display-resolution change event is observed, so a missed event
-    // (dock/undock) or the end of a stream leaves the whole UI rendered into the
-    // smaller 1280x720 viewport. Restore the real display viewport every frame
-    // before NanoVG begins drawing.
-    int32_t displayWidth = 0;
-    int32_t displayHeight = 0;
-    if (R_SUCCEEDED(appletGetDefaultDisplayResolution(&displayWidth, &displayHeight)) &&
-        displayWidth > 0 && displayHeight > 0)
+    // The GLES3 video renderer changes glViewport() while a stream is
+    // playing, so restore the real surface viewport before NanoVG draws.
+    // Query the EGL surface itself: the applet default resolution can be
+    // ahead of the actual surface after a dock/undock change, which would
+    // otherwise scale both the UI and the video beyond the screen frame.
+    int width = 0;
+    int height = 0;
+    if (this->eglDisplay != EGL_NO_DISPLAY && this->eglSurface != EGL_NO_SURFACE)
     {
-        glViewport(0, 0, static_cast<GLsizei>(displayWidth), static_cast<GLsizei>(displayHeight));
+        eglQuerySurface(this->eglDisplay, this->eglSurface, EGL_WIDTH, &width);
+        eglQuerySurface(this->eglDisplay, this->eglSurface, EGL_HEIGHT, &height);
     }
-    else
+    if (width <= 0 || height <= 0)
     {
-        glViewport(0, 0, static_cast<GLsizei>(roundf(this->framebufferWidth)),
-                        static_cast<GLsizei>(roundf(this->framebufferHeight)));
+        width = static_cast<int>(roundf(this->framebufferWidth));
+        height = static_cast<int>(roundf(this->framebufferHeight));
     }
+    glViewport(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
 }
 
 void SwitchVideoContext::endFrame()

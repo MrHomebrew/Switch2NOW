@@ -9,6 +9,7 @@
 #include "app_paths.hpp"
 #include "routing_diagnostics.hpp"
 #include "localization.hpp"
+#include "stream/video_display_mode.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -17,6 +18,24 @@
 
 namespace
 {
+
+constexpr float kDisplayMenuWidth = 220.0f;
+constexpr float kDisplayMenuRowHeight = 28.0f;
+constexpr float kDisplayMenuHeaderHeight = 34.0f;
+
+struct DisplayMenuRect {
+    float x;
+    float y;
+    float width;
+    float height;
+};
+
+DisplayMenuRect DisplayMenuGeometry(float x, float y, float width, float)
+{
+    const float height = kDisplayMenuHeaderHeight +
+        kDisplayMenuRowHeight * opennow::video_display::kModeCount + 10.0f;
+    return {x + width - kDisplayMenuWidth - 16.0f, y + 16.0f, kDisplayMenuWidth, height};
+}
 
 } // namespace
 
@@ -289,6 +308,7 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
         brls::Application::getPlatform()->getInputManager()->updateUnifiedControllerState(&state);
         const bool auto_choice_owned=UpdateAutoLoginChoice(controller_connected_[0]?controller_states_[0]:state,input_now);
         if(!AutoLoginActive())nte_cancel_was_down_=state.buttons[brls::BUTTON_B];
+        UpdateDisplayModeMenu(state, input_now);
 
         if (stream_end_reason_ == opennow::StreamEndReason::StreamEnded) {
             const bool return_down = state.buttons[brls::BUTTON_A] ||
@@ -478,7 +498,30 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
             }
         }
 
-        if (touch_down) {
+        // The transient display panel also accepts touch, but must not leak a
+        // click into the remote game when it is tapped.
+        bool display_menu_touch_hit = false;
+        if (touch_down && display_mode_menu_visible_) {
+            const auto menuRect = DisplayMenuGeometry(x, y, width, height);
+            if (touch_position.x >= menuRect.x &&
+                touch_position.x <= menuRect.x + menuRect.width &&
+                touch_position.y >= menuRect.y &&
+                touch_position.y <= menuRect.y + menuRect.height) {
+                const int row = static_cast<int>(
+                    (touch_position.y - menuRect.y - kDisplayMenuHeaderHeight) /
+                    kDisplayMenuRowHeight);
+                if (row >= 0 && row < opennow::video_display::kModeCount) {
+                    display_mode_selection_ = row;
+                    opennow::video_display::g_mode.store(row, std::memory_order_relaxed);
+                }
+                display_mode_hide_at_ =
+                    std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                display_menu_touch_hit = true;
+                display_menu_touch_active_ = true;
+            }
+        }
+
+        if (touch_down && !display_menu_touch_hit) {
             const int stream_width = std::max(1, session_->stream_width());
             const int stream_height = std::max(1, session_->stream_height());
             const auto target = opennow::input::MapTouchToStream(
@@ -520,10 +563,12 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
                                                   static_cast<float>(stream_height - 1));
                 }
             }
-        } else if (touch_was_down_) {
+        } else if (touch_was_down_ && !display_menu_touch_active_) {
             session_->send_mouse_left_button(false);
         }
         touch_was_down_ = touch_down;
+        if (!touch_down)
+            display_menu_touch_active_ = false;
         } else {
             // Keyboard/menu/auto-login ownership must not stop SCTP ACKs,
             // heartbeat, input reactivation or signaling maintenance.
@@ -573,8 +618,114 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
         DrawAutoLoginChoice(vg,x,y,width,height);
 
     opennow::shortcut::DrawHomeArtworkToast(vg);
+    if (stream_end_reason_ == opennow::StreamEndReason::None)
+        DrawDisplayModeMenu(vg, x, y, width, height);
 
     brls::Box::draw(vg, x, y, width, height, style, ctx);
+}
+
+void StreamView::UpdateDisplayModeMenu(const brls::ControllerState& state,
+                                       std::chrono::steady_clock::time_point now)
+{
+    const bool allowed = !stream_overlay_visible_ && !keyboard_visible_ &&
+        !auto_login_choice_state_.Active() && !AutoLoginActive() &&
+        !shortcut_router_.Armed() &&
+        stream_end_reason_ == opennow::StreamEndReason::None;
+
+    const bool up = state.buttons[brls::BUTTON_UP];
+    const bool left = state.buttons[brls::BUTTON_LEFT];
+    const bool right = state.buttons[brls::BUTTON_RIGHT];
+    const bool a = state.buttons[brls::BUTTON_A];
+
+    if (!allowed) {
+        display_mode_menu_visible_ = false;
+        display_mode_up_was_down_ = up;
+        display_mode_left_was_down_ = left;
+        display_mode_right_was_down_ = right;
+        display_mode_a_was_down_ = a;
+        return;
+    }
+
+    if (up && !display_mode_up_was_down_)
+        display_mode_up_press_at_ = now;
+
+    // Hold UP for a moment to reveal the transient display settings panel.
+    if (!display_mode_menu_visible_ && up && display_mode_up_was_down_ &&
+        now - display_mode_up_press_at_ >= std::chrono::milliseconds(400)) {
+        display_mode_menu_visible_ = true;
+        display_mode_selection_ =
+            opennow::video_display::g_mode.load(std::memory_order_relaxed);
+        display_mode_hide_at_ = now + std::chrono::seconds(3);
+    }
+
+    if (display_mode_menu_visible_) {
+        if (left && !display_mode_left_was_down_) {
+            display_mode_selection_ = (display_mode_selection_ +
+                opennow::video_display::kModeCount - 1) %
+                opennow::video_display::kModeCount;
+            display_mode_hide_at_ = now + std::chrono::seconds(3);
+        }
+        if (right && !display_mode_right_was_down_) {
+            display_mode_selection_ = (display_mode_selection_ + 1) %
+                opennow::video_display::kModeCount;
+            display_mode_hide_at_ = now + std::chrono::seconds(3);
+        }
+        if (a && !display_mode_a_was_down_) {
+            opennow::video_display::g_mode.store(display_mode_selection_,
+                                                  std::memory_order_relaxed);
+            display_mode_hide_at_ = now + std::chrono::seconds(3);
+        }
+        if (now >= display_mode_hide_at_)
+            display_mode_menu_visible_ = false;
+    }
+
+    display_mode_up_was_down_ = up;
+    display_mode_left_was_down_ = left;
+    display_mode_right_was_down_ = right;
+    display_mode_a_was_down_ = a;
+}
+
+void StreamView::DrawDisplayModeMenu(NVGcontext* vg, float x, float y,
+                                     float width, float height)
+{
+    if (!display_mode_menu_visible_)
+        return;
+
+    const auto r = DisplayMenuGeometry(x, y, width, height);
+    nvgSave(vg);
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, r.x, r.y, r.width, r.height, 10);
+    nvgFillColor(vg, nvgRGBA(12, 18, 22, 225));
+    nvgFill(vg);
+    nvgStrokeColor(vg, nvgRGBA(120, 180, 150, 120));
+    nvgStrokeWidth(vg, 1.0f);
+    nvgStroke(vg);
+
+    nvgFontFaceId(vg, brls::Application::getFont(brls::FONT_REGULAR));
+    nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+    nvgFontSize(vg, 16);
+    nvgFillColor(vg, nvgRGB(150, 220, 180));
+    nvgText(vg, r.x + 14, r.y + 17, "DISPLAY", nullptr);
+
+    const int applied = opennow::video_display::g_mode.load(std::memory_order_relaxed);
+    for (int i = 0; i < opennow::video_display::kModeCount; ++i) {
+        const float ry = r.y + kDisplayMenuHeaderHeight + i * kDisplayMenuRowHeight;
+        const bool selected = i == display_mode_selection_;
+        if (selected) {
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, r.x + 8, ry + 1, r.width - 16,
+                           kDisplayMenuRowHeight - 2, 6);
+            nvgFillColor(vg, nvgRGBA(38, 96, 70, 220));
+            nvgFill(vg);
+        }
+        std::string label = opennow::video_display::modeLabel(i);
+        if (i == applied)
+            label += "  *";
+        nvgFontSize(vg, 17);
+        nvgFillColor(vg, selected ? nvgRGB(255, 255, 255) : nvgRGB(200, 214, 208));
+        nvgText(vg, r.x + 18, ry + kDisplayMenuRowHeight / 2, label.c_str(), nullptr);
+    }
+    nvgRestore(vg);
 }
 
 brls::View* StreamView::create(

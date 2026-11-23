@@ -10,12 +10,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 
+#include "../video_display_mode.hpp"
+
 #if defined(__SWITCH2__)
 #include <switch.h>
+#include <EGL/egl.h>
 #endif
 
 static inline uint64_t LiGetMillis() {
@@ -619,46 +623,104 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
     }
 
 #if defined(__SWITCH2__)
-    // The view coordinates handed to Borealis views are logical (1280x720)
-    // while the Switch 2 EGL surface is the real display resolution (up to
-    // 1920x1080 docked). Using the logical size here makes the video occupy
-    // only the top-left part of the screen. Render into the full physical
-    // display instead; keep the logical width/height below only for the
-    // 16:9 UV aspect calculation, which stays correct at either scale.
+    // The logical Borealis view is 1280x720, but raw GL is not scaled by
+    // NanoVG. Use the real EGL surface as the authoritative physical size;
+    // appletGetDefaultDisplayResolution can disagree with the surface when
+    // the dock state changes without a processed resolution-change event.
     int32_t displayWidth = 0;
     int32_t displayHeight = 0;
-    int viewportWidth = width;
-    int viewportHeight = height;
-    if (R_SUCCEEDED(appletGetDefaultDisplayResolution(&displayWidth, &displayHeight)) &&
-        displayWidth > 0 && displayHeight > 0)
-    {
-        viewportWidth = static_cast<int>(displayWidth);
-        viewportHeight = static_cast<int>(displayHeight);
-    }
-    else
-    {
-        viewportWidth = brls::Application::windowWidth;
-        viewportHeight = brls::Application::windowHeight;
-    }
-    glViewport(0, 0, viewportWidth, viewportHeight);
+    appletGetDefaultDisplayResolution(&displayWidth, &displayHeight);
 
-    // Temporary one-shot diagnostic so the exact sizes can be confirmed on
-    // the console without enabling the full render diagnostic stream.
-    static bool viewportSizesLogged = false;
-    if (!viewportSizesLogged)
+    int eglWidth = 0;
+    int eglHeight = 0;
+    const EGLDisplay eglDisplay = eglGetCurrentDisplay();
+    const EGLSurface eglSurface = eglGetCurrentSurface(EGL_DRAW);
+    if (eglDisplay != EGL_NO_DISPLAY && eglSurface != EGL_NO_SURFACE)
     {
-        viewportSizesLogged = true;
+        eglQuerySurface(eglDisplay, eglSurface, EGL_WIDTH, &eglWidth);
+        eglQuerySurface(eglDisplay, eglSurface, EGL_HEIGHT, &eglHeight);
+    }
+
+    const int surfaceWidth = eglWidth > 0 ? eglWidth
+        : (displayWidth > 0 ? static_cast<int>(displayWidth) : brls::Application::windowWidth);
+    const int surfaceHeight = eglHeight > 0 ? eglHeight
+        : (displayHeight > 0 ? static_cast<int>(displayHeight) : brls::Application::windowHeight);
+
+    const int mode = opennow::video_display::g_mode.load(std::memory_order_relaxed);
+    const float frameAspect = frame
+        ? static_cast<float>(frame->width) / static_cast<float>(std::max(1, frame->height))
+        : 16.0f / 9.0f;
+    const float surfaceAspect = static_cast<float>(surfaceWidth) /
+        static_cast<float>(std::max(1, surfaceHeight));
+
+    int viewportX = 0;
+    int viewportY = 0;
+    int viewportWidth = surfaceWidth;
+    int viewportHeight = surfaceHeight;
+    float uvX = 0.0f;
+    float uvY = 0.0f;
+    float uvWidth = 1.0f;
+    float uvHeight = 1.0f;
+
+    if (mode == static_cast<int>(opennow::video_display::Mode::Fit))
+    {
+        // Contain: the complete frame is drawn inside the physical screen,
+        // centred, with black bars left by glClear on the unused edges.
+        if (frameAspect > surfaceAspect)
+        {
+            viewportWidth = std::max(1, static_cast<int>(std::lround(surfaceHeight * frameAspect)));
+            viewportX = (surfaceWidth - viewportWidth) / 2;
+        }
+        else
+        {
+            viewportHeight = std::max(1, static_cast<int>(std::lround(surfaceWidth / frameAspect)));
+            viewportY = (surfaceHeight - viewportHeight) / 2;
+        }
+    }
+    else if (mode == static_cast<int>(opennow::video_display::Mode::Fill))
+    {
+        // Cover: fill the screen, sampling only the central part of the frame.
+        if (frameAspect > surfaceAspect)
+        {
+            uvWidth = surfaceAspect / frameAspect;
+            uvX = 0.5f - 0.5f * uvWidth;
+        }
+        else
+        {
+            uvHeight = frameAspect / surfaceAspect;
+            uvY = 0.5f - 0.5f * uvHeight;
+        }
+    }
+    else if (mode >= static_cast<int>(opennow::video_display::Mode::Zoom125))
+    {
+        const float zoom = opennow::video_display::modeZoom(mode);
+        uvWidth = 1.0f / zoom;
+        uvHeight = 1.0f / zoom;
+        uvX = 0.5f - 0.5f * uvWidth;
+        uvY = 0.5f - 0.5f * uvHeight;
+    }
+
+    glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
+
+    // One line whenever the mode changes, plus the very first frame.
+    static int loggedMode = -1;
+    if (loggedMode != mode)
+    {
+        loggedMode = mode;
         FILE* diag = fopen("sdmc:/switch/SwitchNOW/viewport_fix.log", "a");
         if (diag)
         {
-            fprintf(diag, "view=%dx%d display=%dx%d viewport=%dx%d\n",
-                    width, height, displayWidth, displayHeight,
-                    viewportWidth, viewportHeight);
+            fprintf(diag, "view=%dx%d display=%dx%d egl=%dx%d viewport=%d,%d %dx%d mode=%d frame=%dx%d\n",
+                    width, height, displayWidth, displayHeight, eglWidth, eglHeight,
+                    viewportX, viewportY, viewportWidth, viewportHeight, mode,
+                    frame ? frame->width : -1, frame ? frame->height : -1);
             fclose(diag);
         }
     }
 #else
-    glViewport(0, 0, width, height);
+    int viewportWidth = width;
+    int viewportHeight = height;
+    glViewport(0, 0, viewportWidth, viewportHeight);
 #endif
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -670,6 +732,11 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
 
     glUseProgram(m_shader_program);
     checkAndUpdateScale(width, height, frame);
+#if defined(__SWITCH2__)
+    // The mode can change between frames, so refresh the UV window every
+    // frame instead of only when the frame or view size changes.
+    glUniform4f(m_uv_data_location, uvX, uvY, uvWidth, uvHeight);
+#endif
 
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -699,6 +766,11 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+#if defined(__SWITCH2__)
+    // Return to the full surface so NanoVG overlays drawn after the video are
+    // not mapped through the fitted (possibly smaller) video viewport.
+    glViewport(0, 0, surfaceWidth, surfaceHeight);
+#endif
     m_rendered_frame_count++;
     if (!m_first_draw_logged) {
         m_first_draw_logged = true;
