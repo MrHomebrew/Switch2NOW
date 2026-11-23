@@ -175,6 +175,25 @@ void SwitchVideoContext::beginFrame()
     {
         this->resetFramebuffer();
     }
+
+    // The GLES3 video renderer sets glViewport() to the stream view size while
+    // a stream is playing. On Switch 2 the viewport is otherwise only restored
+    // when a display-resolution change event is observed, so a missed event
+    // (dock/undock) or the end of a stream leaves the whole UI rendered into the
+    // smaller 1280x720 viewport. Restore the real display viewport every frame
+    // before NanoVG begins drawing.
+    int32_t displayWidth = 0;
+    int32_t displayHeight = 0;
+    if (R_SUCCEEDED(appletGetDefaultDisplayResolution(&displayWidth, &displayHeight)) &&
+        displayWidth > 0 && displayHeight > 0)
+    {
+        glViewport(0, 0, static_cast<GLsizei>(displayWidth), static_cast<GLsizei>(displayHeight));
+    }
+    else
+    {
+        glViewport(0, 0, static_cast<GLsizei>(roundf(this->framebufferWidth)),
+                        static_cast<GLsizei>(roundf(this->framebufferHeight)));
+    }
 }
 
 void SwitchVideoContext::endFrame()
