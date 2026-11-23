@@ -15,7 +15,7 @@
 #include <cstdio>
 
 #if defined(__SWITCH2__)
-#include <switch/applet.h>
+#include <switch.h>
 #endif
 
 static inline uint64_t LiGetMillis() {
