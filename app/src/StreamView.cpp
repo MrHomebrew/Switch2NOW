@@ -19,9 +19,10 @@
 namespace
 {
 
-constexpr float kDisplayMenuWidth = 220.0f;
-constexpr float kDisplayMenuRowHeight = 28.0f;
-constexpr float kDisplayMenuHeaderHeight = 34.0f;
+constexpr float kDisplayMenuWidth = 280.0f;
+constexpr float kDisplayMenuRowHeight = 40.0f;
+constexpr float kDisplayMenuHeaderHeight = 38.0f;
+constexpr int kDisplayMenuActionCount = 3;
 
 struct DisplayMenuRect {
     float x;
@@ -33,7 +34,7 @@ struct DisplayMenuRect {
 DisplayMenuRect DisplayMenuGeometry(float x, float y, float width, float)
 {
     const float height = kDisplayMenuHeaderHeight +
-        kDisplayMenuRowHeight * opennow::video_display::kModeCount + 10.0f;
+        kDisplayMenuRowHeight * kDisplayMenuActionCount + 10.0f;
     return {x + width - kDisplayMenuWidth - 16.0f, y + 16.0f, kDisplayMenuWidth, height};
 }
 
@@ -399,30 +400,32 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
 
             if (stream_overlay_display_submenu_)
             {
-                const int move =
-                    ((up_down && !stream_overlay_up_was_down_) ||
-                     (left_down && !stream_overlay_left_was_down_)) ? -1 :
-                    ((down_down && !stream_overlay_down_was_down_) ||
-                     (right_down && !stream_overlay_right_was_down_)) ? 1 : 0;
-                if (move != 0)
-                    display_mode_selection_ =
-                        (display_mode_selection_ + opennow::video_display::kModeCount + move) %
-                        opennow::video_display::kModeCount;
+                // LEFT/RIGHT zoom directly; UP/DOWN move the highlight and A
+                // applies the highlighted row. Repeated A presses keep working.
+                if (left_down && !stream_overlay_left_was_down_)
+                    opennow::video_display::adjustZoom(-opennow::video_display::kZoomStep);
+                if (right_down && !stream_overlay_right_was_down_)
+                    opennow::video_display::adjustZoom(opennow::video_display::kZoomStep);
+                if (up_down && !stream_overlay_up_was_down_)
+                    display_mode_selection_ = (display_mode_selection_ + 2) % 3;
+                if (down_down && !stream_overlay_down_was_down_)
+                    display_mode_selection_ = (display_mode_selection_ + 1) % 3;
                 if (a_down && !stream_overlay_a_was_down_)
                 {
-                    opennow::video_display::g_mode.store(display_mode_selection_,
-                                                         std::memory_order_relaxed);
+                    if (display_mode_selection_ == 0)
+                        opennow::video_display::adjustZoom(-opennow::video_display::kZoomStep);
+                    else if (display_mode_selection_ == 1)
+                        opennow::video_display::adjustZoom(opennow::video_display::kZoomStep);
+                    else
+                        opennow::video_display::setZoom(100);
                     stream_overlay_status_ =
-                        std::string(opennow::Tr("Display mode")) + ": " +
-                        opennow::video_display::modeLabel(display_mode_selection_);
+                        std::string(opennow::Tr("Zoom")) + ": " +
+                        opennow::video_display::zoomLabel();
                     stream_overlay_status_until_ = input_now + std::chrono::seconds(3);
                     if (session_)
                         session_->record_ui_event(
-                            std::string("overlay display mode=") +
-                            std::to_string(display_mode_selection_));
-                    stream_overlay_display_submenu_ = false;
-                    stream_overlay_selection_ = static_cast<std::size_t>(
-                        opennow::input::OverlayAction::DisplayMode);
+                            std::string("overlay zoom=") +
+                            std::to_string(opennow::video_display::zoomPercent()));
                 }
                 if (b_down && !stream_overlay_b_was_down_)
                 {
@@ -587,9 +590,15 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
                 const int row = static_cast<int>(
                     (touch_position.y - menuRect.y - kDisplayMenuHeaderHeight) /
                     kDisplayMenuRowHeight);
-                if (row >= 0 && row < opennow::video_display::kModeCount) {
-                    display_mode_selection_ = row;
-                    opennow::video_display::g_mode.store(row, std::memory_order_relaxed);
+                if (row >= 0 && row < kDisplayMenuActionCount &&
+                    row != display_menu_touch_row_) {
+                    display_menu_touch_row_ = row;
+                    if (row == 0)
+                        opennow::video_display::adjustZoom(-opennow::video_display::kZoomStep);
+                    else if (row == 1)
+                        opennow::video_display::setZoom(100);
+                    else
+                        opennow::video_display::adjustZoom(opennow::video_display::kZoomStep);
                 }
                 display_mode_hide_at_ =
                     std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -644,8 +653,10 @@ void StreamView::draw(NVGcontext* vg, float x, float y, float width, float heigh
             session_->send_mouse_left_button(false);
         }
         touch_was_down_ = touch_down;
-        if (!touch_down)
+        if (!touch_down) {
             display_menu_touch_active_ = false;
+            display_menu_touch_row_ = -1;
+        }
         } else {
             // Keyboard/menu/auto-login ownership must not stop SCTP ACKs,
             // heartbeat, input reactivation or signaling maintenance.
@@ -730,26 +741,20 @@ void StreamView::UpdateDisplayModeMenu(const brls::ControllerState& state,
     if (!display_mode_menu_visible_ && up && display_mode_up_was_down_ &&
         now - display_mode_up_press_at_ >= std::chrono::milliseconds(400)) {
         display_mode_menu_visible_ = true;
-        display_mode_selection_ =
-            opennow::video_display::g_mode.load(std::memory_order_relaxed);
         display_mode_hide_at_ = now + std::chrono::seconds(3);
     }
 
     if (display_mode_menu_visible_) {
         if (left && !display_mode_left_was_down_) {
-            display_mode_selection_ = (display_mode_selection_ +
-                opennow::video_display::kModeCount - 1) %
-                opennow::video_display::kModeCount;
+            opennow::video_display::adjustZoom(-opennow::video_display::kZoomStep);
             display_mode_hide_at_ = now + std::chrono::seconds(3);
         }
         if (right && !display_mode_right_was_down_) {
-            display_mode_selection_ = (display_mode_selection_ + 1) %
-                opennow::video_display::kModeCount;
+            opennow::video_display::adjustZoom(opennow::video_display::kZoomStep);
             display_mode_hide_at_ = now + std::chrono::seconds(3);
         }
         if (a && !display_mode_a_was_down_) {
-            opennow::video_display::g_mode.store(display_mode_selection_,
-                                                  std::memory_order_relaxed);
+            opennow::video_display::setZoom(100);
             display_mode_hide_at_ = now + std::chrono::seconds(3);
         }
         if (now >= display_mode_hide_at_)
@@ -772,35 +777,39 @@ void StreamView::DrawDisplayModeMenu(NVGcontext* vg, float x, float y,
     nvgSave(vg);
     nvgBeginPath(vg);
     nvgRoundedRect(vg, r.x, r.y, r.width, r.height, 10);
-    nvgFillColor(vg, nvgRGBA(12, 18, 22, 225));
+    nvgFillColor(vg, nvgRGBA(12, 18, 22, 230));
     nvgFill(vg);
-    nvgStrokeColor(vg, nvgRGBA(120, 180, 150, 120));
+    nvgStrokeColor(vg, nvgRGBA(120, 180, 150, 140));
     nvgStrokeWidth(vg, 1.0f);
     nvgStroke(vg);
 
     nvgFontFaceId(vg, brls::Application::getFont(brls::FONT_REGULAR));
     nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-    nvgFontSize(vg, 16);
+    nvgFontSize(vg, 15);
     nvgFillColor(vg, nvgRGB(150, 220, 180));
-    nvgText(vg, r.x + 14, r.y + 17, "DISPLAY", nullptr);
+    nvgText(vg, r.x + 14, r.y + 18, "DISPLAY ZOOM", nullptr);
+    const std::string value = opennow::video_display::zoomLabel();
+    nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+    nvgFontSize(vg, 21);
+    nvgFillColor(vg, nvgRGB(235, 250, 240));
+    nvgText(vg, r.x + r.width - 14, r.y + 18, value.c_str(), nullptr);
 
-    const int applied = opennow::video_display::g_mode.load(std::memory_order_relaxed);
-    for (int i = 0; i < opennow::video_display::kModeCount; ++i) {
+    const char* rows[kDisplayMenuActionCount] = {
+        "LEFT   ZOOM -",
+        "A      RESET 100%",
+        "RIGHT  ZOOM +",
+    };
+    for (int i = 0; i < kDisplayMenuActionCount; ++i) {
         const float ry = r.y + kDisplayMenuHeaderHeight + i * kDisplayMenuRowHeight;
-        const bool selected = i == display_mode_selection_;
-        if (selected) {
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, r.x + 8, ry + 1, r.width - 16,
-                           kDisplayMenuRowHeight - 2, 6);
-            nvgFillColor(vg, nvgRGBA(38, 96, 70, 220));
-            nvgFill(vg);
-        }
-        std::string label = opennow::video_display::modeLabel(i);
-        if (i == applied)
-            label += "  *";
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, r.x + 8, ry + 2, r.width - 16,
+                       kDisplayMenuRowHeight - 4, 6);
+        nvgFillColor(vg, nvgRGBA(30, 44, 40, 230));
+        nvgFill(vg);
+        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         nvgFontSize(vg, 17);
-        nvgFillColor(vg, selected ? nvgRGB(255, 255, 255) : nvgRGB(200, 214, 208));
-        nvgText(vg, r.x + 18, ry + kDisplayMenuRowHeight / 2, label.c_str(), nullptr);
+        nvgFillColor(vg, nvgRGB(215, 235, 222));
+        nvgText(vg, r.x + 18, ry + kDisplayMenuRowHeight / 2, rows[i], nullptr);
     }
     nvgRestore(vg);
 }

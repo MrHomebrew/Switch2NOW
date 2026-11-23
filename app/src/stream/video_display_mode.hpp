@@ -1,57 +1,54 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
+#include <string>
 
 namespace opennow::video_display {
 
-// Display geometry modes for the Switch 2 stream renderer. FIT is the default:
-// the whole decoded frame stays inside the physical screen frame (letterbox /
-// pillarbox instead of cropping the game).
-enum class Mode : int {
-    Fit = 0,
-    Fill,
-    Stretch,
-    Zoom125,
-    Zoom150,
-    Zoom200,
-};
+// Continuous centre zoom for the Switch 2 stream renderer.
+//
+// 100 keeps the decoded frame fitted inside the physical screen (a 1280x720
+// frame on a 1920x1080 surface therefore fills it exactly with no bars).
+// Below 100 the fitted frame is scaled down and centred, so black borders
+// appear. Above 100 the frame is centre-cropped, i.e. zoomed in.
+//
+// A fixed list of FIT/FILL/STRETCH presets was tried first, but when the
+// stream and the surface have the same aspect ratio (the normal 16:9 case)
+// those three modes are mathematically identical, so only their ZOOM entries
+// produced a visible change. Incremental zoom is both clearer and useful in
+// that case.
+inline std::atomic<int> g_zoom_percent{100};
 
-inline constexpr int kModeCount = 6;
+inline constexpr int kZoomMin = 50;
+inline constexpr int kZoomMax = 300;
+inline constexpr int kZoomStep = 10;
 
-inline std::atomic<int> g_mode{static_cast<int>(Mode::Fit)};
-
-inline const char* modeLabel(int mode)
+inline int clampZoom(int percent)
 {
-    switch (mode) {
-        case static_cast<int>(Mode::Fit):
-            return "FIT (inside frame)";
-        case static_cast<int>(Mode::Fill):
-            return "FILL (crop edges)";
-        case static_cast<int>(Mode::Stretch):
-            return "STRETCH";
-        case static_cast<int>(Mode::Zoom125):
-            return "ZOOM 1.25x";
-        case static_cast<int>(Mode::Zoom150):
-            return "ZOOM 1.5x";
-        case static_cast<int>(Mode::Zoom200):
-            return "ZOOM 2x";
-        default:
-            return "FIT (inside frame)";
-    }
+    return std::max(kZoomMin, std::min(kZoomMax, percent));
 }
 
-inline float modeZoom(int mode)
+inline int zoomPercent()
 {
-    switch (mode) {
-        case static_cast<int>(Mode::Zoom125):
-            return 1.25f;
-        case static_cast<int>(Mode::Zoom150):
-            return 1.5f;
-        case static_cast<int>(Mode::Zoom200):
-            return 2.0f;
-        default:
-            return 1.0f;
-    }
+    return g_zoom_percent.load(std::memory_order_relaxed);
+}
+
+inline int setZoom(int percent)
+{
+    const int next = clampZoom(percent);
+    g_zoom_percent.store(next, std::memory_order_relaxed);
+    return next;
+}
+
+inline int adjustZoom(int delta)
+{
+    return setZoom(zoomPercent() + delta);
+}
+
+inline std::string zoomLabel()
+{
+    return std::to_string(zoomPercent()) + "%";
 }
 
 } // namespace opennow::video_display

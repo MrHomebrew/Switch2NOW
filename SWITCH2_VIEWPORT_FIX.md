@@ -78,6 +78,35 @@ reachable from the existing **MINUS + PLUS** stream menu:
 `brls::Application::setGlobalQuit(false)` is unchanged; the explicit `quit()`
 call still works because the main loop checks `quitRequested` directly.
 
+## Fifth pass (incremental ZOOM - / ZOOM +)
+On-console testing showed that only the ZOOM entries changed the picture; FIT,
+FILL and STRETCH appeared to do nothing. The new log format confirmed why:
+`egl=1920x1080`, `frame=1280x720` and every recorded viewport was `0,0 1920x1080`
+for modes 0/1/2. Both the decoded frame and the EGL surface are exactly 16:9, so
+contain, cover and stretch are mathematically the same full-screen rectangle.
+This was expected behaviour, not a stuck input.
+
+The fixed modes were replaced with a continuous zoom percentage:
+
+- Range **50%–300%**, step **10%**, default **100%**.
+- **Below 100%**: the fitted frame is scaled down and centred, so black borders
+  become visible (a real zoom-out even on a 16:9 stream).
+- **Above 100%**: centre crop of the UV window (zoom-in).
+- The renderer always contains the frame inside the EGL surface first, so a
+  future non-16:9 stream still letterboxes correctly.
+
+Controls:
+
+- Hold **UP** ~400 ms: transient panel showing the current percentage plus
+  **LEFT = ZOOM -**, **RIGHT = ZOOM +**, **A = RESET 100%** (also tappable).
+- **MINUS + PLUS** menu -> **Display zoom >**: submenu with ZOOM -, ZOOM + and
+  RESET 100%. UP/DOWN moves the highlight, A applies and keeps the submenu open
+  for repeated presses, LEFT/RIGHT also zoom directly, B goes back.
+- `viewport_fix.log` now records `zoom=N%` whenever the value changes.
+
+The **Exit to hbmenu** action and the **L + R** quit chord from the fourth pass
+are unchanged.
+
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
 Build artifacts come from this fork's `switch2-build.yml` workflow.

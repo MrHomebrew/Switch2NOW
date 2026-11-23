@@ -646,73 +646,63 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
     const int surfaceHeight = eglHeight > 0 ? eglHeight
         : (displayHeight > 0 ? static_cast<int>(displayHeight) : brls::Application::windowHeight);
 
-    const int mode = opennow::video_display::g_mode.load(std::memory_order_relaxed);
+    const int zoomPercent = opennow::video_display::zoomPercent();
+    const float zoom = static_cast<float>(zoomPercent) / 100.0f;
     const float frameAspect = frame
         ? static_cast<float>(frame->width) / static_cast<float>(std::max(1, frame->height))
         : 16.0f / 9.0f;
     const float surfaceAspect = static_cast<float>(surfaceWidth) /
         static_cast<float>(std::max(1, surfaceHeight));
 
-    int viewportX = 0;
-    int viewportY = 0;
-    int viewportWidth = surfaceWidth;
-    int viewportHeight = surfaceHeight;
+    // First contain the decoded frame inside the physical surface. On the
+    // normal 16:9 path this is already the full surface, so 100% changes
+    // nothing; zoom below 100% shrinks the viewport and zoom above 100%
+    // centre-crops the UV window.
+    int baseWidth = surfaceWidth;
+    int baseHeight = surfaceHeight;
+    if (frameAspect > surfaceAspect)
+        baseHeight = std::max(1, static_cast<int>(std::lround(surfaceWidth / frameAspect)));
+    else
+        baseWidth = std::max(1, static_cast<int>(std::lround(surfaceHeight * frameAspect)));
+
+    int viewportX = (surfaceWidth - baseWidth) / 2;
+    int viewportY = (surfaceHeight - baseHeight) / 2;
+    int viewportWidth = baseWidth;
+    int viewportHeight = baseHeight;
     float uvX = 0.0f;
     float uvY = 0.0f;
     float uvWidth = 1.0f;
     float uvHeight = 1.0f;
 
-    if (mode == static_cast<int>(opennow::video_display::Mode::Fit))
+    if (zoom >= 1.0f)
     {
-        // Contain: the complete frame is drawn inside the physical screen,
-        // centred, with black bars left by glClear on the unused edges.
-        if (frameAspect > surfaceAspect)
-        {
-            viewportWidth = std::max(1, static_cast<int>(std::lround(surfaceHeight * frameAspect)));
-            viewportX = (surfaceWidth - viewportWidth) / 2;
-        }
-        else
-        {
-            viewportHeight = std::max(1, static_cast<int>(std::lround(surfaceWidth / frameAspect)));
-            viewportY = (surfaceHeight - viewportHeight) / 2;
-        }
+        const float scale = 1.0f / zoom;
+        uvWidth = scale;
+        uvHeight = scale;
+        uvX = 0.5f - 0.5f * scale;
+        uvY = 0.5f - 0.5f * scale;
     }
-    else if (mode == static_cast<int>(opennow::video_display::Mode::Fill))
+    else
     {
-        // Cover: fill the screen, sampling only the central part of the frame.
-        if (frameAspect > surfaceAspect)
-        {
-            uvWidth = surfaceAspect / frameAspect;
-            uvX = 0.5f - 0.5f * uvWidth;
-        }
-        else
-        {
-            uvHeight = frameAspect / surfaceAspect;
-            uvY = 0.5f - 0.5f * uvHeight;
-        }
-    }
-    else if (mode >= static_cast<int>(opennow::video_display::Mode::Zoom125))
-    {
-        const float zoom = opennow::video_display::modeZoom(mode);
-        uvWidth = 1.0f / zoom;
-        uvHeight = 1.0f / zoom;
-        uvX = 0.5f - 0.5f * uvWidth;
-        uvY = 0.5f - 0.5f * uvHeight;
+        viewportWidth = std::max(1, static_cast<int>(std::lround(baseWidth * zoom)));
+        viewportHeight = std::max(1, static_cast<int>(std::lround(baseHeight * zoom)));
+        viewportX = (surfaceWidth - viewportWidth) / 2;
+        viewportY = (surfaceHeight - viewportHeight) / 2;
     }
 
     glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
 
-    // One line whenever the mode changes, plus the very first frame.
-    static int loggedMode = -1;
-    if (loggedMode != mode)
+    // One line whenever the zoom changes, plus the very first frame.
+    static int loggedZoom = -1;
+    if (loggedZoom != zoomPercent)
     {
-        loggedMode = mode;
+        loggedZoom = zoomPercent;
         FILE* diag = fopen("sdmc:/switch/SwitchNOW/viewport_fix.log", "a");
         if (diag)
         {
-            fprintf(diag, "view=%dx%d display=%dx%d egl=%dx%d viewport=%d,%d %dx%d mode=%d frame=%dx%d\n",
+            fprintf(diag, "view=%dx%d display=%dx%d egl=%dx%d viewport=%d,%d %dx%d zoom=%d%% frame=%dx%d\n",
                     width, height, displayWidth, displayHeight, eglWidth, eglHeight,
-                    viewportX, viewportY, viewportWidth, viewportHeight, mode,
+                    viewportX, viewportY, viewportWidth, viewportHeight, zoomPercent,
                     frame ? frame->width : -1, frame ? frame->height : -1);
             fclose(diag);
         }

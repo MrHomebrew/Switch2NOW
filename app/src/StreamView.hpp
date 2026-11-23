@@ -272,6 +272,7 @@ private:
     bool display_mode_a_was_down_ = false;
     bool display_mode_menu_visible_ = false;
     bool display_menu_touch_active_ = false;
+    int display_menu_touch_row_ = -1;
     int display_mode_selection_ = 0;
     std::chrono::steady_clock::time_point display_mode_up_press_at_{};
     std::chrono::steady_clock::time_point display_mode_hide_at_{};
