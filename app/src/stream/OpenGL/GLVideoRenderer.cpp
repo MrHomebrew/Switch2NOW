@@ -14,6 +14,10 @@
 #include <cstdint>
 #include <cstdio>
 
+#if defined(__SWITCH2__)
+#include <switch/applet.h>
+#endif
+
 static inline uint64_t LiGetMillis() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()
@@ -614,7 +618,48 @@ void GLVideoRenderer::drawLatest(NVGcontext* vg, int width, int height,
 #endif
     }
 
+#if defined(__SWITCH2__)
+    // The view coordinates handed to Borealis views are logical (1280x720)
+    // while the Switch 2 EGL surface is the real display resolution (up to
+    // 1920x1080 docked). Using the logical size here makes the video occupy
+    // only the top-left part of the screen. Render into the full physical
+    // display instead; keep the logical width/height below only for the
+    // 16:9 UV aspect calculation, which stays correct at either scale.
+    int32_t displayWidth = 0;
+    int32_t displayHeight = 0;
+    int viewportWidth = width;
+    int viewportHeight = height;
+    if (R_SUCCEEDED(appletGetDefaultDisplayResolution(&displayWidth, &displayHeight)) &&
+        displayWidth > 0 && displayHeight > 0)
+    {
+        viewportWidth = static_cast<int>(displayWidth);
+        viewportHeight = static_cast<int>(displayHeight);
+    }
+    else
+    {
+        viewportWidth = brls::Application::windowWidth;
+        viewportHeight = brls::Application::windowHeight;
+    }
+    glViewport(0, 0, viewportWidth, viewportHeight);
+
+    // Temporary one-shot diagnostic so the exact sizes can be confirmed on
+    // the console without enabling the full render diagnostic stream.
+    static bool viewportSizesLogged = false;
+    if (!viewportSizesLogged)
+    {
+        viewportSizesLogged = true;
+        FILE* diag = fopen("sdmc:/switch/SwitchNOW/viewport_fix.log", "a");
+        if (diag)
+        {
+            fprintf(diag, "view=%dx%d display=%dx%d viewport=%dx%d\n",
+                    width, height, displayWidth, displayHeight,
+                    viewportWidth, viewportHeight);
+            fclose(diag);
+        }
+    }
+#else
     glViewport(0, 0, width, height);
+#endif
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_DEPTH_TEST);
