@@ -1,54 +1,38 @@
 #pragma once
 
-#include <algorithm>
 #include <atomic>
-#include <string>
 
 namespace opennow::video_display {
 
-// Continuous centre zoom for the Switch 2 stream renderer.
+// Display geometry modes for the Switch 2 stream renderer. FIT is the default:
+// the whole decoded frame stays inside the physical screen frame (letterbox /
+// pillarbox instead of cropping the game).
 //
-// 100 keeps the decoded frame fitted inside the physical screen (a 1280x720
-// frame on a 1920x1080 surface therefore fills it exactly with no bars).
-// Below 100 the fitted frame is scaled down and centred, so black borders
-// appear. Above 100 the frame is centre-cropped, i.e. zoomed in.
-//
-// A fixed list of FIT/FILL/STRETCH presets was tried first, but when the
-// stream and the surface have the same aspect ratio (the normal 16:9 case)
-// those three modes are mathematically identical, so only their ZOOM entries
-// produced a visible change. Incremental zoom is both clearer and useful in
-// that case.
-inline std::atomic<int> g_zoom_percent{100};
+// Zoom was removed deliberately: on a 16:9 stream it only cropped the picture
+// and did not help with the full-frame problem. These three modes change the
+// display shape without offering any magnification.
+enum class Mode : int {
+    Fit = 0,
+    Fill,
+    Stretch,
+};
 
-inline constexpr int kZoomMin = 50;
-inline constexpr int kZoomMax = 300;
-inline constexpr int kZoomStep = 10;
+inline constexpr int kModeCount = 3;
 
-inline int clampZoom(int percent)
+inline std::atomic<int> g_mode{static_cast<int>(Mode::Fit)};
+
+inline const char* modeLabel(int mode)
 {
-    return std::max(kZoomMin, std::min(kZoomMax, percent));
-}
-
-inline int zoomPercent()
-{
-    return g_zoom_percent.load(std::memory_order_relaxed);
-}
-
-inline int setZoom(int percent)
-{
-    const int next = clampZoom(percent);
-    g_zoom_percent.store(next, std::memory_order_relaxed);
-    return next;
-}
-
-inline int adjustZoom(int delta)
-{
-    return setZoom(zoomPercent() + delta);
-}
-
-inline std::string zoomLabel()
-{
-    return std::to_string(zoomPercent()) + "%";
+    switch (mode) {
+        case static_cast<int>(Mode::Fit):
+            return "FIT (inside frame)";
+        case static_cast<int>(Mode::Fill):
+            return "FILL (crop edges)";
+        case static_cast<int>(Mode::Stretch):
+            return "STRETCH";
+        default:
+            return "FIT (inside frame)";
+    }
 }
 
 } // namespace opennow::video_display

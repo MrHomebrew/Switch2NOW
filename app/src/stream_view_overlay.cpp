@@ -406,7 +406,8 @@ void StreamView::ActivateStreamOverlayAction(
                 session_->record_ui_event("overlay network information refreshed");
             break;
         case opennow::input::OverlayAction::DisplayMode:
-            display_mode_selection_ = 1; // ZOOM +
+            display_mode_selection_ =
+                opennow::video_display::g_mode.load(std::memory_order_relaxed);
             stream_overlay_display_submenu_ = true;
             if (session_)
                 session_->record_ui_event("overlay display mode menu opened");
@@ -807,28 +808,18 @@ void StreamView::DrawStreamOverlay(
 
     if (stream_overlay_display_submenu_)
     {
-        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        nvgFontSize(vg, 15.0f);
-        nvgFillColor(vg, nvgRGB(150, 220, 180));
-        const std::string zoom_heading = opennow::Tr("DISPLAY ZOOM") + "  " +
-            opennow::video_display::zoomLabel();
-        nvgText(vg, right_x, right_y, zoom_heading.c_str(), nullptr);
-        right_y += 26.0f;
-
-        const std::array<std::string, 3> zoom_actions = {
-            opennow::Tr("ZOOM -"),
-            opennow::Tr("ZOOM +"),
-            opennow::Tr("RESET 100%"),
-        };
-        for (std::size_t index = 0; index < zoom_actions.size(); ++index)
-            draw_action_row(right_y, zoom_actions[index],
-                            static_cast<int>(index) == display_mode_selection_, false);
+        const int applied_mode =
+            opennow::video_display::g_mode.load(std::memory_order_relaxed);
+        for (int index = 0; index < opennow::video_display::kModeCount; ++index)
+            draw_action_row(right_y,
+                opennow::video_display::modeLabel(index),
+                index == display_mode_selection_, index == applied_mode);
         right_y += 4.0f;
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         nvgFontSize(vg, 12.0f);
         nvgFillColor(vg, nvgRGB(150, 205, 175));
         nvgText(vg, right_x, right_y,
-            opennow::Tr("A apply  /  LEFT-RIGHT adjust  /  B back").c_str(), nullptr);
+            opennow::Tr("A apply  /  B back  /  D-pad select").c_str(), nullptr);
     }
     else
     {
@@ -837,7 +828,7 @@ void StreamView::DrawStreamOverlay(
                 ? opennow::Tr("Hide performance statistics")
                 : opennow::Tr("Show performance statistics"),
             opennow::Tr("Refresh network information"),
-            opennow::Tr("Display zoom  >"),
+            opennow::Tr("Display mode  >"),
             opennow::Tr("Close menu"),
             opennow::Tr("Exit stream"),
             opennow::Tr("Exit to hbmenu (quit app)"),

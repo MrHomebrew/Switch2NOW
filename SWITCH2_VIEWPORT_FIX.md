@@ -78,56 +78,42 @@ reachable from the existing **MINUS + PLUS** stream menu:
 `brls::Application::setGlobalQuit(false)` is unchanged; the explicit `quit()`
 call still works because the main loop checks `quitRequested` directly.
 
-## Fifth pass (incremental ZOOM - / ZOOM +)
-On-console testing showed that only the ZOOM entries changed the picture; FIT,
-FILL and STRETCH appeared to do nothing. The new log format confirmed why:
-`egl=1920x1080`, `frame=1280x720` and every recorded viewport was `0,0 1920x1080`
-for modes 0/1/2. Both the decoded frame and the EGL surface are exactly 16:9, so
-contain, cover and stretch are mathematically the same full-screen rectangle.
-This was expected behaviour, not a stuck input.
+## Final pass (full frame first, display modes only)
+The user clarified that the problem was never the magnification: the decoded
+game picture itself was a rectangular segment, and shrinking the viewport only
+made that same segment smaller. Zoom was therefore removed completely.
 
-The fixed modes were replaced with a continuous zoom percentage:
+Two real defects were fixed:
 
-- Range **50%–300%**, step **10%**, default **100%**.
-- **Below 100%**: the fitted frame is scaled down and centred, so black borders
-  become visible (a real zoom-out even on a 16:9 stream).
-- **Above 100%**: centre crop of the UV window (zoom-in).
-- The renderer always contains the frame inside the EGL surface first, so a
-  future non-16:9 stream still letterboxes correctly.
+1. `GLShaders.hpp` used `uv = (tex_position - uv_data.xy) * uv_data.zw`. That
+   subtracts the offset **before** scaling, so a centred window such as
+   `u0 = 0.25, width = 0.5` became `-0.125 .. 0.375` instead of `0.25 .. 0.75`,
+   sampling outside the texture and clamping at the edges. All four shaders now
+   use the direct rectangle form `uv = uv_data.xy + tex_position * uv_data.zw`.
+2. `checkAndUpdateScale()` applied an old aspect-derived UV crop before
+   `drawLatest()` overwrote it. It now uploads `(0, 0, 1, 1)`; the GL viewport
+   handles letterboxing and the display mode handles any intentional crop.
 
-Controls:
+The contain (`FIT`) geometry was also corrected: for a wider frame the height
+is reduced to `surfaceWidth / frameAspect`, and for a taller frame the width is
+reduced to `surfaceHeight * frameAspect`. The earlier version had these two
+branches reversed.
 
-- Hold **UP** ~400 ms: transient panel showing the current percentage plus
-  **LEFT = ZOOM -**, **RIGHT = ZOOM +**, **A = RESET 100%** (also tappable).
-- **MINUS + PLUS** menu -> **Display zoom >**: submenu with ZOOM -, ZOOM + and
-  RESET 100%. UP/DOWN moves the highlight, A applies and keeps the submenu open
-  for repeated presses, LEFT/RIGHT also zoom directly, B goes back.
-- `viewport_fix.log` now records `zoom=N%` whenever the value changes.
+Only three display-shape modes remain, default **FIT**:
 
-The **Exit to hbmenu** action and the **L + R** quit chord from the fourth pass
-are unchanged.
+- **FIT (inside frame)** — whole frame inside the screen, letterboxed if needed.
+- **FILL (crop edges)** — cover the screen, cropping only excess source pixels.
+- **STRETCH** — full screen, full source rectangle, no aspect preservation.
 
-## Sixth pass (full-frame UV mapping + decoded-frame probe)
-The user confirmed that even at 50% only a segment of the picture was visible,
-just drawn smaller. The viewport rectangle changed, but the source pixels did
-not, so the crop had to be in the GL texture mapping (or in the decoded frame
-itself).
+Hold **UP** ~400 ms for the transient panel, or use **MINUS + PLUS** ->
+**Display mode >**. UP/DOWN moves the highlight, A applies it, B goes back;
+touch rows work in the transient panel. The **Exit to hbmenu** action and the
+**L + R** quit chord from the fourth pass are unchanged.
 
-Two defects were fixed:
-
-1. `GLShaders.hpp` used `uv = (tex_position - uv_data.xy) * uv_data.zw`, which
-   treats `xy` as a subtraction before scaling. A centred zoom window such as
-   `u0 = 0.25, width = 0.5` was therefore sampled as
-   `(t - 0.25) * 0.5 = -0.125 .. 0.375`, not `0.25 .. 0.75`. All four shaders
-   now use the direct rectangle form `uv = uv_data.xy + tex_position * uv_data.zw`.
-2. `checkAndUpdateScale()` still applied an old aspect-derived UV crop before
-   `drawLatest()` overwrote it. It now always uploads `(0, 0, 1, 1)`; the GL
-   viewport handles letterboxing and `drawLatest()` handles zoom.
-
-`viewport_fix.log` now also records the exact UV rectangle, coded frame size,
-plane line sizes and decoder crop values. On Switch 2 the first decoded frame
-is dumped to `sdmc:/switch/SwitchNOW/first_frame.ppm` so the actual decoder
-output can be compared with what is drawn.
+`viewport_fix.log` records the applied mode, viewport, UV rectangle and plane
+line sizes. On Switch 2 the first decoded frame is also dumped to
+`sdmc:/switch/SwitchNOW/first_frame.ppm` so we can verify whether the decoded
+frame itself contains the whole picture.
 
 ## Status
 Unofficial community patch. Not reviewed or released by the upstream author.
