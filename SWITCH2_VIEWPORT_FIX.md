@@ -115,6 +115,16 @@ line sizes. On Switch 2 the first decoded frame is also dumped to
 `sdmc:/switch/SwitchNOW/first_frame.ppm` so we can verify whether the decoded
 frame itself contains the whole picture.
 
+## Advertised viewport decoupled from encoded resolution (v9)
+The 1080p Quality preset never reached signaling: `signaling.log` stayed
+byte-identical to the last successful 720p session and no 3 s / 8 s probes were
+created. The server's H.264 offer only declares Level 3.1 (`42001f`, `42e01f`),
+which cannot encode 1920x1080, so a 1080p request is unsupported here. The saved
+settings were restored to the verified Balanced 1280x720 preset. v9 keeps the
+decoder and encoded stream at 1280x720 but advertises the actual 1920x1080
+client viewport in `a=video.clientViewportWd/Ht`, testing whether the server was
+cropping a top-left 1280x720 region of the 1920x1080 desktop.
+
 ## Frame-probe timing extension
 The first frame can be a dark loading or transition frame, so it is not enough
 to decide whether the crop exists in the decoded stream. The probe now also
