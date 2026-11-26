@@ -7,7 +7,6 @@
 #include <curl/curl.h>
 
 #include <borealis.hpp>
-#include <chrono>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
@@ -167,51 +166,13 @@ int main(int argc, char* argv[])
                 ? "extended=enabled runtime=always_on"
                 : "extended=disabled runtime=always_on");
 
-                brls::Application::pushActivity(new opennow::MainActivity(
+        brls::Application::pushActivity(new opennow::MainActivity(
             std::move(launch_request), std::move(installer_result)),
             brls::TransitionAnimation::FADE);
         opennow::update::ConfirmInstalledUpdate();
-
-        bool holding_lr = false;
-        auto lr_hold_start = std::chrono::steady_clock::now();
-        constexpr auto kMenuExitHold = std::chrono::milliseconds(400);
-
         while (brls::Application::mainLoop())
         {
             opennow::LocalizeActionHints();
-
-            const auto& activities = brls::Application::getActivitiesStack();
-            if (!activities.empty() &&
-                dynamic_cast<opennow::MainActivity*>(activities.back()) != nullptr)
-            {
-                brls::ControllerState state{};
-                brls::Application::getPlatform()
-                    ->getInputManager()
-                    ->updateUnifiedControllerState(&state);
-
-                if (state.buttons[brls::BUTTON_LB] &&
-                    state.buttons[brls::BUTTON_RB])
-                {
-                    if (!holding_lr)
-                    {
-                        holding_lr = true;
-                        lr_hold_start = std::chrono::steady_clock::now();
-                    }
-                    else if (std::chrono::steady_clock::now() - lr_hold_start >=
-                             kMenuExitHold)
-                    {
-                        brls::Application::quit();
-                    }
-                }
-                else
-                {
-                    holding_lr = false;
-                }
-            }
-            else
-            {
-                holding_lr = false;
-            }
         }
 
         AppendBootLog("boot: main loop exited");
