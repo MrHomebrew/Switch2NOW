@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 
 #include <borealis.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
