@@ -173,7 +173,23 @@ int main(int argc, char* argv[])
         while (brls::Application::mainLoop())
         {
             opennow::LocalizeActionHints();
+
+            const auto& activities = brls::Application::getActivitiesStack();
+            if (!activities.empty() &&
+                dynamic_cast<opennow::MainActivity*>(activities.back()) != nullptr)
+            {
+                brls::ControllerState state{};
+                brls::Application::getPlatform()
+                    ->getInputManager()
+                    ->updateUnifiedControllerState(&state);
+
+                if (state.buttons[brls::BUTTON_START])
+                {
+                    brls::Application::quit();
+                }
+            }
         }
+
 
         AppendBootLog("boot: main loop exited");
         opennow::shortcut::ShutdownWorker();
